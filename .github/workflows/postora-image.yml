@@ -54,8 +54,7 @@ jobs:
           # rajzoloja: az utobbi a clipPath-ot figyelmen kivul hagyja, es a
           # jelbol egy szintelen negyzet lenne. Az ImageMagick csak a kesz
           # PNG-kbol rakja ossze az .ico-t.
-          # A convert parancs kikerult az ubuntu-latest kepbol (ImageMagick 7
-          # neve magick), ezert telepitjuk es a magick-et hivjuk.
+          # Az ImageMagick nincs eleve a kepen, ezert telepitjuk.
           sudo apt-get update -qq
           sudo apt-get install -y -qq librsvg2-bin imagemagick
           SRC=apps/frontend/public/favicon.svg
@@ -64,7 +63,12 @@ jobs:
           for s in 16 32 48; do
             rsvg-convert -w $s -h $s "$SRC" -o "/tmp/fav-$s.png"
           done
-          magick /tmp/fav-16.png /tmp/fav-32.png /tmp/fav-48.png apps/frontend/public/favicon.ico
+          # Az ImageMagick binaris neve verziofuggo: a 7-e magick, a 6-e
+          # convert. Az ubuntu-latest csomagja a 6-os, de ezt nem erdemes
+          # beegetni -- ha a kep valaha 7-re valt, ez a lepes nemán tovabb megy.
+          IM="$(command -v magick || command -v convert)"
+          test -n "$IM" || { echo "nincs ImageMagick"; exit 1; }
+          "$IM" /tmp/fav-16.png /tmp/fav-32.png /tmp/fav-48.png apps/frontend/public/favicon.ico
           ls -la apps/frontend/public/favicon.*
           file apps/frontend/public/favicon.ico apps/frontend/public/favicon.png
 
