@@ -32,6 +32,11 @@ export class InstagramProvider
   name = 'Instagram\n(Facebook Business)';
   isBetweenSteps = true;
   toolTip = 'Instagram must be business and connected to a Facebook page';
+  /*
+   * Az instagram_manage_comments (olvasas es nyilvanos valasz) mar eddig is
+   * itt volt. Az instagram_manage_messages UJ: a kommentelonek kuldott privat
+   * valaszhoz kell, ugyanugy, mint a Facebook oldalon a pages_messaging.
+   */
   scopes = [
     'instagram_basic',
     'pages_show_list',
@@ -39,6 +44,7 @@ export class InstagramProvider
     'business_management',
     'instagram_content_publish',
     'instagram_manage_comments',
+    'instagram_manage_messages',
     'instagram_manage_insights',
   ];
   override maxConcurrentJob = 400;

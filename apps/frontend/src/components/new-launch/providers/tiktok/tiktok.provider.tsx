@@ -137,7 +137,7 @@ const TikTokSettings: FC<{
     }
     return t(
       'tiktok_restriction_upload_video',
-      'TikTok restriction: For upload-only video, TikTok does not accept a title or message. The content will default to "#Postiz" and you can edit it inside the TikTok app before publishing.'
+      'TikTok restriction: For upload-only video, TikTok does not accept a title or message. The content will default to "#Postora" and you can edit it inside the TikTok app before publishing.'
     );
   }, [hasMedia, isUploadMode, isVideo, t]);
 
@@ -215,7 +215,7 @@ const TikTokSettings: FC<{
             className="w-[36px] h-[36px] rounded-full object-cover shrink-0"
           />
         ) : (
-          <div className="w-[36px] h-[36px] rounded-full bg-customColor21 shrink-0" />
+          <div className="w-[36px] h-[36px] rounded-full bg-newTableBorder shrink-0" />
         )}
         <div className="flex flex-col text-[13px] leading-[1.35] min-w-0">
           <span className="opacity-70">

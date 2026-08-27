@@ -57,7 +57,7 @@ export const startMcp = async (app: INestApplication) => {
   ) as typeof tools;
 
   const serverConfig = {
-    name: 'Postiz MCP',
+    name: 'Postora MCP',
     version: '1.0.0',
     tools,
     agents: { postiz: agent },
@@ -69,13 +69,13 @@ export const startMcp = async (app: INestApplication) => {
   // exposed as an annotation-less catch-all ask_postiz tool, which the
   // ChatGPT and Claude directory reviews reject
   const oauthServer = new MCPServer({
-    name: 'Postiz MCP',
+    name: 'Postora MCP',
     version: '1.0.0',
     tools,
   });
 
   const claudeOauthServer = new MCPServer({
-    name: 'Postiz MCP',
+    name: 'Postora MCP',
     version: '1.0.0',
     tools: claudeTools,
   });

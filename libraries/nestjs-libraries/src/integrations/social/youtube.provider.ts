@@ -60,14 +60,43 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
   name = 'YouTube';
   isBetweenSteps = true;
   dto = YoutubeSettingsDto;
+  /*
+   * MINDEN SCOPE EGY TENYLEGESEN HASZNALT FUNKCIOHOZ TARTOZIK.
+   *
+   * A Google 2026-08-27-en azert utasitotta el a verifikaciot, mert a kod tobb
+   * scope-ot kert, mint amennyi a Cloud Console-ban be volt allitva -- szigoru
+   * string-egyezest kernek --, es a levelben a legszukebb jogosultsag elvere
+   * hivatkoztak. Ezert a lista a ket iranybol a szukebbhez igazodik, es minden
+   * elem mellett ott van, mi hasznalja:
+   *
+   *   userinfo.profile / userinfo.email  a csatlakoztatott fiok neve es cime
+   *   youtube.upload                     videofeltoltes
+   *   youtube.readonly                   csatorna- es videolistazas
+   *   youtube.force-ssl                  iras: komment-valasz, videomodositas
+   *   yt-analytics.readonly              a statisztika nezet (l. lentebb a
+   *                                      youtubeAnalytics hivast)
+   *
+   * KIVETT ES MIERT:
+   *   youtube          A teljes fiokkezeles. Amit hasznalunk beloule, azt a
+   *                    force-ssl is megadja, tehat ez feleslegesen tag.
+   *   youtubepartner   Content partner muveletekhez valo. A kodban SEHOL nem
+   *                    hivjuk -- csak a scope-listaban allt. Egy nem hasznalt,
+   *                    magas jogosultsagu scope a legbiztosabb modja annak,
+   *                    hogy a biralo visszakerdezzen.
+   *
+   * A force-ssl SZANDEKOSAN MARAD: a komment-valasz automatizalasa ezen all,
+   * es az uzletileg kert kepesseg (Zsombor, 2026-08-27). Nelkule a YouTube
+   * kommentekhez nem lehet hozzanyulni.
+   *
+   * HA EZ A LISTA VALTOZIK, a Google Cloud Console Data Access kepernyojet
+   * UGYANIGY at kell allitani, kulonben a verifikacio ujra elbukik.
+   */
   scopes = [
     'https://www.googleapis.com/auth/userinfo.profile',
     'https://www.googleapis.com/auth/userinfo.email',
-    'https://www.googleapis.com/auth/youtube',
-    'https://www.googleapis.com/auth/youtube.force-ssl',
-    'https://www.googleapis.com/auth/youtube.readonly',
     'https://www.googleapis.com/auth/youtube.upload',
-    'https://www.googleapis.com/auth/youtubepartner',
+    'https://www.googleapis.com/auth/youtube.readonly',
+    'https://www.googleapis.com/auth/youtube.force-ssl',
     'https://www.googleapis.com/auth/yt-analytics.readonly',
   ];
 

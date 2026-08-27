@@ -32,12 +32,23 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
   identifier = 'facebook';
   name = 'Facebook Page';
   isBetweenSteps = true;
+  /*
+   * A komment-kezeleshez a pages_read_engagement (olvasas) es a
+   * pages_manage_engagement (nyilvanos valasz) mar eddig is itt volt.
+   *
+   * A pages_messaging UJ: e nelkul nem lehet a komment szerzojenek PRIVAT
+   * valaszt kuldeni (Graph API private_replies el). Ez a komment -> DM lepes,
+   * amit ma kezzel csinalunk. Ket korlatja van, es ezt a hivo oldalnak tudnia
+   * kell: egy kommentre CSAK EGYSZER lehet privat valaszt kuldeni, es csak
+   * korlatozott ideig a komment utan.
+   */
   scopes = [
     'pages_show_list',
     'business_management',
     'pages_manage_posts',
     'pages_manage_engagement',
     'pages_read_engagement',
+    'pages_messaging',
     'read_insights',
   ];
   override maxConcurrentJob = 500; // Facebook has reasonable rate limits

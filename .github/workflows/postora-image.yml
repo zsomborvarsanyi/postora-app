@@ -44,6 +44,18 @@ jobs:
       - name: TikTok UX Guidelines ellenorzes
         run: node tools/tiktok-ux-guidelines-check.mjs
 
+      # A .svg favicon minden mai bongeszoben nyer, de a regi klienseknek es
+      # az iOS kezdolapnak raszter kell. A futtatonál van ImageMagick, tehát
+      # ugyanabbol az SVG-bol gyartjuk mindkettot -- igy nem tud szetcsuszni a
+      # jel a kulonbozo meretek kozott.
+      - name: Favicon raszterizalas az SVG-bol
+        run: |
+          SRC=apps/frontend/public/favicon.svg
+          test -f "$SRC"
+          convert -background none "$SRC" -resize 180x180 apps/frontend/public/favicon.png
+          convert -background none "$SRC" -define icon:auto-resize=16,32,48 apps/frontend/public/favicon.ico
+          ls -la apps/frontend/public/favicon.*
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 

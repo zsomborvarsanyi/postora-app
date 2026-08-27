@@ -40,11 +40,16 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   return (
     <html>
       <head>
+        {/* Az SVG elsokent all: a modern bongeszok ezt valasztjak, es ez
+            skalazodik. Az .ico csak tartalek a regi kliensekhez, es azt is mi
+            gyartjuk a buildben ugyanebbol az SVG-bol. */}
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="apple-touch-icon" href="/favicon.png" />
         {!!process.env.DATAFAST_WEBSITE_ID && (
           <Script
             data-website-id={process.env.DATAFAST_WEBSITE_ID}
-            data-domain="postiz.com"
+            data-domain={process.env.NEXT_PUBLIC_ANALYTICS_DOMAIN || 'postora.zsomborvarsanyi.com'}
             src="https://datafa.st/js/script.js"
             strategy="afterInteractive"
           />
@@ -103,7 +108,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             <FacebookComponent />
             <GoogleTagManagerComponent gtmId={process.env.NEXT_PUBLIC_GTM_ID} />
             <Plausible
-              domain={!!process.env.IS_GENERAL ? 'postiz.com' : 'gitroom.com'}
+              domain={
+                process.env.NEXT_PUBLIC_ANALYTICS_DOMAIN ||
+                'postora.zsomborvarsanyi.com'
+              }
             >
               <PHProvider
                 phkey={process.env.NEXT_PUBLIC_POSTHOG_KEY}
