@@ -1,0 +1,83 @@
+---
+# Postora sajat image build.
+#
+# MIERT VAN EZ. A hivatalos ghcr.io/gitroomhq/postiz-app image tartalmazza a
+# TikTok Content Sharing UX Guidelines megsertesét (upstream #1563, nyitva
+# 2026-05-26 ota). A javitas a fix/tiktok-content-sharing-ux-guidelines agon
+# van, es amig upstream be nem kerul, sajat image-et kell gyartanunk.
+#
+# MIERT ITT FUT ES NEM A SZERVEREN. A celgep egy 4 GB RAM-os VPS, amin a Postiz
+# es a Temporal is fut. Egy Next.js build ott konnyen elfogyaszthatna a
+# memoriat, es kozben a szolgaltatas is akadna. A GitHub futtatoja ingyenes,
+# nagyobb, es a szervernek csak a kesz image-et kell lehuznia.
+#
+# CSAK AMD64. A celgep x86, arm64-re nincs szukseg, es a fele epitesi ido.
+
+name: Postora image
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'fix/**'
+
+concurrency:
+  # Egy agon egyszerre egy build. Egy ujabb push feleslegesse teszi a futot.
+  group: postora-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # A build elott lefuttatjuk a UX-guidelines ellenorzest. Ha egy upstream
+      # merge csendben visszahozza az alapertelmezett privacy erteket, itt
+      # bukjon el, ne hetekkel kesobb a TikTok auditjan.
+      - name: TikTok UX Guidelines ellenorzes
+        run: node tools/tiktok-ux-guidelines-check.mjs
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Cimkek szamitasa
+        id: meta
+        run: |
+          REPO_LC=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "image=ghcr.io/${REPO_LC}" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Build es push
+        run: |
+          docker buildx build --platform linux/amd64 \
+            -f Dockerfile.dev \
+            -t ${{ steps.meta.outputs.image }}:latest \
+            -t ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.sha }} \
+            --build-arg NEXT_PUBLIC_VERSION=postora-${{ steps.meta.outputs.sha }} \
+            --provenance=false --sbom=false \
+            --push .
+
+      - name: Osszefoglalo
+        run: |
+          {
+            echo "### Postora image kesz"
+            echo ""
+            echo "- \`${{ steps.meta.outputs.image }}:latest\`"
+            echo "- \`${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.sha }}\`"
+            echo ""
+            echo "A szerveren: \`docker compose pull postiz && docker compose up -d postiz\`"
+          } >> "$GITHUB_STEP_SUMMARY"
