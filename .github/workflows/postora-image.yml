@@ -50,11 +50,23 @@ jobs:
       # jel a kulonbozo meretek kozott.
       - name: Favicon raszterizalas az SVG-bol
         run: |
+          # rsvg-convert az SVG->PNG lepesre, NEM az ImageMagick sajat SVG
+          # rajzoloja: az utobbi a clipPath-ot figyelmen kivul hagyja, es a
+          # jelbol egy szintelen negyzet lenne. Az ImageMagick csak a kesz
+          # PNG-kbol rakja ossze az .ico-t.
+          # A convert parancs kikerult az ubuntu-latest kepbol (ImageMagick 7
+          # neve magick), ezert telepitjuk es a magick-et hivjuk.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq librsvg2-bin imagemagick
           SRC=apps/frontend/public/favicon.svg
           test -f "$SRC"
-          convert -background none "$SRC" -resize 180x180 apps/frontend/public/favicon.png
-          convert -background none "$SRC" -define icon:auto-resize=16,32,48 apps/frontend/public/favicon.ico
+          rsvg-convert -w 180 -h 180 "$SRC" -o apps/frontend/public/favicon.png
+          for s in 16 32 48; do
+            rsvg-convert -w $s -h $s "$SRC" -o "/tmp/fav-$s.png"
+          done
+          magick /tmp/fav-16.png /tmp/fav-32.png /tmp/fav-48.png apps/frontend/public/favicon.ico
           ls -la apps/frontend/public/favicon.*
+          file apps/frontend/public/favicon.ico apps/frontend/public/favicon.png
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

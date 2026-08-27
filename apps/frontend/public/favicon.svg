@@ -1,23 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 48" width="36" height="48" role="img" aria-label="Postora">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Postora">
   <!--
-    A Postora jele: egy alló kártya, a felső harmadán okker sávval.
+    NÉGYZETES változat, szándékosan külön a logo.svg-től.
 
-    Ugyanaz az alakzat, ami a postora.zsomborvarsanyi.com fejlécében áll, csak
-    ott kontúrosan, világos papíron. Itt kitöltve, mert az alkalmazás háttere
-    sötét, és favicon méretben (16px) egy vékony kontúr szétesne.
+    A logó 3:4 arányú álló kártya, mert az egy videó formája. Egy favicon
+    helye viszont négyzet: ha az álló alakzatot tennénk oda, a böngésző
+    letterboxolná, és 16 pixelen egy sovány csík maradna belőle. Ezért a
+    kártya itt egy négyzetbe van komponálva, kicsit zömökebb aránnyal, hogy
+    kis méretben is tömör folt legyen.
 
-    Miért ez az alakzat: 3:4 arányú álló keret, vagyis egy videó formája, és
-    a felső sáv a jelölés, hogy be van ütemezve. A termék egy mondatban.
+    Ugyanaz a két szín és ugyanaz a felső okker sáv, tehát egy család.
   -->
   <defs>
-    <clipPath id="postora-card">
-      <rect x="1" y="1" width="34" height="46" rx="5" ry="5"/>
+    <clipPath id="postora-favicon-card">
+      <rect x="11" y="5" width="26" height="38" rx="5" ry="5"/>
     </clipPath>
   </defs>
-  <g clip-path="url(#postora-card)">
-    <rect x="1" y="1" width="34" height="46" fill="#2F4FC0"/>
-    <!-- A sáv a magasság 34%-a, egyezően a weboldal fejlécének jelével. -->
-    <rect x="1" y="1" width="34" height="15.6" fill="#D9A227"/>
+  <g clip-path="url(#postora-favicon-card)">
+    <rect x="11" y="5" width="26" height="38" fill="#2F4FC0"/>
+    <rect x="11" y="5" width="26" height="12.9" fill="#D9A227"/>
   </g>
-  <rect x="1" y="1" width="34" height="46" rx="5" ry="5" fill="none" stroke="#2F4FC0" stroke-width="2"/>
 </svg>
