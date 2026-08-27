@@ -399,25 +399,84 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
-  async maxVideoLength(accessToken: string) {
-    const {
-      data: { max_video_post_duration_sec },
-    } = await (
-      await fetch(
-        'https://open.tiktokapis.com/v2/post/publish/creator_info/query/',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json; charset=UTF-8',
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }
-      )
-    ).json();
+  /**
+   * Creator info for the composer, straight from TikTok.
+   *
+   * TikTok's Content Sharing UX Guidelines require the posting screen to be
+   * built from live creator data, not from our own assumptions: the creator's
+   * nickname has to be visible so the user knows which account they are about
+   * to post to, the privacy dropdown may only offer the options TikTok returns,
+   * an interaction the creator disabled in their app settings must be greyed
+   * out rather than silently ignored, and a video longer than the creator's
+   * allowance must be refused before upload.
+   *
+   * The guidelines also require this to be fetched when the posting page is
+   * rendered, so the composer calls it through the standard custom-function
+   * route on every mount rather than caching it.
+   *
+   * Returns `canPost: false` with a reason instead of throwing, because the
+   * composer has to disable posting and explain why, and an exception here
+   * would surface as an unhelpful generic error.
+   */
+  async creatorInfo(accessToken: string) {
+    const response = await fetch(
+      'https://open.tiktokapis.com/v2/post/publish/creator_info/query/',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json; charset=UTF-8',
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    const json = await response.json().catch(() => ({} as any));
+    const errorCode = json?.error?.code;
+
+    if (!response.ok || (errorCode && errorCode !== 'ok')) {
+      return {
+        canPost: false,
+        reason:
+          json?.error?.message ||
+          'TikTok did not return creator information for this account.',
+        privacyLevelOptions: [] as string[],
+        commentDisabled: false,
+        duetDisabled: false,
+        stitchDisabled: false,
+        maxDurationSeconds: 0,
+        nickname: '',
+        avatarUrl: '',
+        username: '',
+      };
+    }
+
+    const data = json?.data ?? {};
 
     return {
-      maxDurationSeconds: max_video_post_duration_sec,
+      canPost: true,
+      reason: '',
+      // TikTok only lets a creator pick from the levels it returns here. An
+      // option we offer that is missing from this list is rejected at publish
+      // time with privacy_level_option_mismatch, so the dropdown is built from
+      // this array and nothing else.
+      privacyLevelOptions: (data.privacy_level_options ?? []) as string[],
+      commentDisabled: !!data.comment_disabled,
+      duetDisabled: !!data.duet_disabled,
+      stitchDisabled: !!data.stitch_disabled,
+      maxDurationSeconds: Number(data.max_video_post_duration_sec ?? 0),
+      nickname: data.creator_nickname ?? '',
+      avatarUrl: data.creator_avatar_url ?? '',
+      username: data.creator_username ?? '',
     };
+  }
+
+  /**
+   * Kept for callers that only need the duration. Delegates so the request
+   * shape lives in one place.
+   */
+  async maxVideoLength(accessToken: string) {
+    const { maxDurationSeconds } = await this.creatorInfo(accessToken);
+    return { maxDurationSeconds };
   }
 
   // Single status check for a publish_id, no loops and no timers: `post` returns
