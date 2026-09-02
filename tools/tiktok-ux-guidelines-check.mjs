@@ -49,6 +49,20 @@ allit(
   'sehol nincs hardcode-olt PUBLIC_TO_EVERYONE alapertek',
   !/value:\s*'PUBLIC_TO_EVERYONE'/.test(front)
 );
+// A mero sokaig CSAK a szerkesztot nezte, es igy atengedett egy
+// `privacy_level || 'PUBLIC_TO_EVERYONE'` fallbacket a kikuldo agban. Az
+// ugyanaz a szabalysertes, csak eggyel lejjebb: ha a mezo uresen erkezik, a
+// poszt az alkoto valasztasa nelkul ment volna ki nyilvanosan.
+allit(
+  'a BACKEND sem tesz alapertelmezett privacy szintet a kikuldott kerésbe',
+  !/privacy_level:[^\n]*\|\|/.test(back),
+  'talalt egy privacy_level: ... || ... alaku fallbacket'
+);
+allit(
+  'ures privacy szint eseten a backend inkabb hibat dob, mint hogy posztoljon',
+  /requirePrivacyLevel/.test(back) &&
+    /throw new BadBody\(\s*'tiktok-privacy-level'/.test(back)
+);
 allit(
   'a legordulo a TikTok altal visszaadott listabol epul',
   /creator\?\.privacyLevelOptions/.test(front)

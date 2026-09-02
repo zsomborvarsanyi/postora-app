@@ -581,6 +581,35 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     }
   }
 
+  /*
+   * A privacy szintnek nincs es nem is lehet alapertelmezett erteke: a Content
+   * Sharing UX Guidelines szerint az alkotonak aktivan kell valasztania.
+   *
+   * A szerkeszto ezt betartja (ures a legordulo), es a DTO is kotelezove teszi
+   * a mezot -- itt viszont korabban egy `|| 'PUBLIC_TO_EVERYONE'` allt. Az a
+   * fallback pontosan azt a szabalyt sertette meg, ami miatt az elozo audit
+   * elbukott, csak eggyel lejjebb: ha a mezo barmilyen uton (regi mentett
+   * poszt, publikus API, egy kesobbi DTO-valtozas) uresen erkezik, a poszt
+   * csendben NYILVANOSAN ment volna ki, az alkoto valasztasa nelkul.
+   *
+   * Inkabb ne menjen ki a poszt, mint rossz lathatosaggal: a hibauzenet
+   * megjelenik a felhasznalonal, es ujra tudja kuldeni.
+   */
+  private requirePrivacyLevel(firstPost: PostDetails<TikTokDto>) {
+    const privacyLevel = firstPost.settings.privacy_level;
+
+    if (!privacyLevel) {
+      throw new BadBody(
+        'tiktok-privacy-level',
+        '{}',
+        {} as any,
+        'Choose who can see this video before posting to TikTok'
+      );
+    }
+
+    return privacyLevel;
+  }
+
   private buildTikokPostInfoBody(firstPost: PostDetails<TikTokDto>) {
     const isPhoto = !hasExtension(firstPost?.media?.[0]?.path, 'mp4');
     const method = this.contentPostingMethod(firstPost);
@@ -595,8 +624,7 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
             ? { title: firstPost.message }
             : {}),
           ...(isPhoto ? { description: firstPost.message } : {}),
-          privacy_level:
-            firstPost.settings.privacy_level || 'PUBLIC_TO_EVERYONE',
+          privacy_level: this.requirePrivacyLevel(firstPost),
           ...(isPhoto
             ? {}
             : { disable_duet: !this.assetBoolean(firstPost.settings.duet) }),
