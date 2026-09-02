@@ -23,8 +23,6 @@ import {
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { useUser } from '@gitroom/frontend/components/layout/user.context';
 import { useDubClickId } from '@gitroom/frontend/components/layout/dubAnalytics';
-import SafeImage from '@gitroom/react/helpers/safe.image';
-import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import useCookie from 'react-use-cookie';
 import { LogoutComponent } from '@gitroom/frontend/components/layout/logout.component';
 import { DeveloperIconComponent } from '@gitroom/frontend/components/developer/developer.icon.component';
@@ -54,7 +52,6 @@ export const FirstBillingComponent = () => {
   const [tier, setTier] = useState('STANDARD');
   const [period, setPeriod] = useState('MONTHLY');
   const fetch = useFetch();
-  const modals = useModals();
   const t = useT();
   const [datafast_visitor_id] = useCookie('datafast_visitor_id', '');
   const [datafast_session_id] = useCookie('datafast_session_id', '');
@@ -79,20 +76,12 @@ export const FirstBillingComponent = () => {
     ).json();
   }, [tier, period]);
 
-  const showYouTube = () => {
-    modals.openModal({
-      title: 'Grow Fast With Postora (Play the video)',
-      children: (
-        <iframe
-          className="h-full aspect-video min-w-[800px]"
-          src="https://www.youtube.com/embed/BdsCVvEYgHU?si=vvhaZJ8I5oXXvVJS?autoplay=1"
-          title="Postora Tutorial"
-          allow="autoplay"
-          allowFullScreen
-        />
-      ),
-    });
-  };
+  /*
+   * Az upstream itt egy "See the power of ..." linket tett, ami a Postiz sajat
+   * YouTube-oktatovideojat nyitotta meg. A markazas a link szoveget atirta, a
+   * videot nem -- vagyis a mi nevunkben egy masik termek videoja nyilt volna
+   * meg. Sajat bemutato videonk nincs, ezert a link eltavolitva.
+   */
 
   const { data, isLoading } = useSWR(
     `/billing-${tier}-${period}`,
@@ -126,20 +115,6 @@ export const FirstBillingComponent = () => {
           )}
         </div>
 
-        <div className="flex" onClick={showYouTube}>
-          <div className="tablet:mb-[32px] cursor-pointer mt-[32px] flex gap-[10px] items-center underline hover:font-[700]">
-            <div>
-              <SafeImage
-                className="text-[12px]"
-                src="/icons/platforms/youtube.svg"
-                width={22.5}
-                height={16}
-                alt="YouTube"
-              />
-            </div>
-            <div>See the power of Postora (click here)</div>
-          </div>
-        </div>
 
         {!!user?.allowTrial && (
           <div className="flex mt-[32px] mb-[10px] gap-[15px] tablet:mt-[32px] tablet:mb-[32px] text-[16px] font-[500] mobile:flex-col">
