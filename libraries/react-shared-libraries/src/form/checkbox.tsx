@@ -8,6 +8,7 @@ export const Checkbox = forwardRef<
   {
     checked?: boolean;
     disableForm?: boolean;
+    disabled?: boolean;
     name?: string;
     className?: string;
     label?: string;
@@ -18,15 +19,23 @@ export const Checkbox = forwardRef<
       };
     }) => void;
     variant?: 'default' | 'hollow';
+    'data-tooltip-id'?: string;
+    'data-tooltip-content'?: string;
   }
 >((props, ref: any) => {
-  const { checked, className, label, disableForm, variant } = props;
+  const { checked, className, label, disableForm, variant, disabled } = props;
   const form = useFormContext();
   const register = disableForm ? {} : form.register(props.name!);
   const watch = disableForm ? false : form.watch(props.name!);
   const val = watch || checked;
 
   const changeStatus = useCallback(() => {
+    // `disabled` used to be accepted here but never actually read - every
+    // caller passing it (TikTok's duet/stitch/comment toggles) assumed the
+    // checkbox was inert, but it stayed clickable. This is the fix.
+    if (disabled) {
+      return;
+    }
     props?.onChange?.({
       target: {
         name: props.name!,
@@ -42,15 +51,21 @@ export const Checkbox = forwardRef<
         },
       });
     }
-  }, [val]);
+  }, [val, disabled]);
   return (
-    <div className="flex gap-[10px]">
+    <div
+      className={clsx('flex gap-[10px]', disabled && 'opacity-50')}
+      data-tooltip-id={props['data-tooltip-id']}
+      data-tooltip-content={props['data-tooltip-content']}
+    >
       <div
         ref={ref}
         {...disableForm ? {} : form.register(props.name!)}
         onClick={changeStatus}
+        aria-disabled={disabled}
         className={clsx(
-          'cursor-pointer rounded-[4px] select-none w-[24px] h-[24px] justify-center items-center flex text-white',
+          'rounded-[4px] select-none w-[24px] h-[24px] justify-center items-center flex text-white',
+          disabled ? 'cursor-not-allowed' : 'cursor-pointer',
           variant === 'default' || !variant
             ? 'bg-forth'
             : 'border-customColor1 border-2 bg-customColor2',

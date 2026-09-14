@@ -44,7 +44,7 @@ interface TikTokCreatorInfo {
 const TikTokSettings: FC<{
   values?: any;
 }> = (props) => {
-  const { watch, register } = useSettings();
+  const { watch, register, setValue } = useSettings();
   const { value, integration } = useIntegration();
   const t = useT();
   const customFunc = useCustomProviderFunction();
@@ -103,6 +103,22 @@ const TikTokSettings: FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [integration?.id]);
 
+  /*
+   * Mirrors `creator.canPost` into a hidden form field so it actually blocks
+   * publishing (guideline 1b: "must stop the current publishing attempt"),
+   * not just show a banner. `form.trigger()` - the one thing that gates the
+   * Post/Add to Calendar button - validates the whole form including this.
+   * Left unset while `creator` hasn't loaded yet, so we never block on our
+   * own loading state (IsOptional on the DTO side treats unset as "unknown,
+   * let it through").
+   */
+  useEffect(() => {
+    if (!creator) {
+      return;
+    }
+    setValue('_creatorCanPost', creator.canPost, { shouldValidate: true });
+  }, [creator, setValue]);
+
   // Music and location come from the Business API (v1.3) - the legacy Content
   // Posting API used by the "tiktok" identifier has no such fields.
   const isBusiness = integration?.identifier === 'tiktok-business';
@@ -118,6 +134,7 @@ const TikTokSettings: FC<{
   const autoAddMusic = watch('autoAddMusic');
   const brand_organic_toggle = watch('brand_organic_toggle');
   const brand_content_toggle = watch('brand_content_toggle');
+  const privacyLevelValue = watch('privacy_level');
   const content_posting_method = watch('content_posting_method');
   const isUploadMode = content_posting_method === 'UPLOAD';
 
@@ -171,6 +188,56 @@ const TikTokSettings: FC<{
     const rest = seconds % 60;
     return minutes > 0 ? `${minutes}m ${rest}s` : `${rest}s`;
   }, [creator?.maxDurationSeconds, isVideo]);
+
+  /*
+   * Guideline 1c: a video longer than creator_info().max_video_post_duration_sec
+   * must be refused, not just flagged with a label (maxDurationLabel above is
+   * informational only). This reads the actual file duration with a throwaway
+   * <video> element and blocks submission through the same hidden-field
+   * mechanism as _creatorCanPost.
+   */
+  const [durationError, setDurationError] = useState('');
+  useEffect(() => {
+    const path = hasMedia && isVideo ? value?.[0]?.image?.[0]?.path : undefined;
+    const maxDurationSeconds = creator?.maxDurationSeconds ?? 0;
+
+    if (!path || !maxDurationSeconds) {
+      setDurationError('');
+      setValue('_videoDurationValid', true, { shouldValidate: true });
+      return;
+    }
+
+    let cancelled = false;
+    const probe = document.createElement('video');
+    probe.preload = 'metadata';
+    probe.onloadedmetadata = () => {
+      if (cancelled) return;
+      const withinLimit = probe.duration <= maxDurationSeconds;
+      setValue('_videoDurationValid', withinLimit, { shouldValidate: true });
+      setDurationError(
+        withinLimit
+          ? ''
+          : `${t(
+              'tiktok_video_too_long',
+              'This video is longer than the maximum this TikTok account can post'
+            )} (${maxDurationLabel || `${maxDurationSeconds}s`}).`
+      );
+    };
+    probe.onerror = () => {
+      // We couldn't read the duration ourselves - don't block on that.
+      if (cancelled) return;
+      setDurationError('');
+      setValue('_videoDurationValid', true, { shouldValidate: true });
+    };
+    probe.src = path;
+
+    return () => {
+      cancelled = true;
+      probe.src = '';
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasMedia, isVideo, value, creator?.maxDurationSeconds, setValue]);
+
   const contentPostingMethod = [
     {
       value: 'DIRECT_POST',
@@ -254,6 +321,11 @@ const TikTokSettings: FC<{
           <strong>{maxDurationLabel}</strong>
         </div>
       )}
+      {durationError && (
+        <div className="bg-red-800/30 border border-red-600 p-[10px] mb-[18px] rounded-[10px] text-[13px] text-balance">
+          {durationError}
+        </div>
+      )}
       {tiktokRestrictionNotice && (
         <div className="bg-tableBorder p-[10px] mb-[18px] rounded-[10px] flex gap-[10px] items-start text-[13px] text-balance">
           <div className="shrink-0 mt-[2px]">
@@ -293,7 +365,19 @@ const TikTokSettings: FC<{
               : t('select', 'Select')}
           </option>
           {privacyLevel.map((item) => (
-            <option key={item.value} value={item.value}>
+            <option
+              key={item.value}
+              value={item.value}
+              disabled={item.value === 'SELF_ONLY' && brand_content_toggle}
+              title={
+                item.value === 'SELF_ONLY' && brand_content_toggle
+                  ? t(
+                      'tiktok_branded_content_cannot_be_private',
+                      "Branded content visibility cannot be set to private."
+                    )
+                  : undefined
+              }
+            >
               {item.label}
             </option>
           ))}
@@ -453,10 +537,22 @@ const TikTokSettings: FC<{
                 </svg>
               </div>
               <div>
-                {t(
-                  'your_video_will_be_labeled_promotional',
-                  'Your video will be labeled "Promotional Content".'
-                )}
+                {/*
+                  Guideline 3a: the label must say "Paid partnership" as soon as
+                  Branded Content is picked (alone or together with Your Brand),
+                  and only "Promotional content" when Your Brand is picked alone.
+                  This used to be a single static string regardless of which
+                  checkbox was selected.
+                */}
+                {brand_content_toggle
+                  ? t(
+                      'your_video_will_be_labeled_paid_partnership',
+                      'Your video will be labeled "Paid Partnership".'
+                    )
+                  : t(
+                      'your_video_will_be_labeled_promotional',
+                      'Your video will be labeled "Promotional Content".'
+                    )}
                 <br />
                 {t(
                   'this_cannot_be_changed_once_posted',
@@ -471,6 +567,20 @@ const TikTokSettings: FC<{
               'Turn on to disclose that this video promotes goods or services in\n          exchange for something of value. You video could promote yourself, a\n          third party, or both.'
             )}
           </div>
+          {/*
+            Guideline 3a: at least one of "Your brand" / "Branded content" is
+            required once the toggle is on - the DTO blocks submission
+            (IsBrandDisclosureComplete), this is the same message surfaced
+            inline instead of only after a failed save.
+          */}
+          {disclose && !brand_organic_toggle && !brand_content_toggle && (
+            <div className="text-[13px] text-red-400 -mt-[6px]">
+              {t(
+                'tiktok_disclosure_choice_required',
+                'You need to indicate if your content promotes yourself, a third party, or both.'
+              )}
+            </div>
+          )}
         </div>
         <div className={clsx(!disclose && 'invisible h-0 overflow-hidden', 'mt-[20px]')}>
           <Checkbox
@@ -492,10 +602,26 @@ const TikTokSettings: FC<{
               'This video will be classified as Brand Organic.'
             )}
           </div>
+          {/*
+            Guideline 3b: branded content can never be SELF_ONLY. Disabling
+            the checkbox here (rather than silently switching the privacy
+            level) matches the option the guideline lists first.
+          */}
           <Checkbox
             variant="hollow"
             label={t('label_branded_content', 'Branded content')}
-            disabled={isUploadMode}
+            disabled={isUploadMode || privacyLevelValue === 'SELF_ONLY'}
+            data-tooltip-id={
+              privacyLevelValue === 'SELF_ONLY' ? 'tooltip' : undefined
+            }
+            data-tooltip-content={
+              privacyLevelValue === 'SELF_ONLY'
+                ? t(
+                    'tiktok_branded_content_cannot_be_private',
+                    'Branded content visibility cannot be set to private.'
+                  )
+                : undefined
+            }
             {...register('brand_content_toggle', {
               value: false,
             })}
@@ -511,6 +637,19 @@ const TikTokSettings: FC<{
               'This video will be classified as Branded Content.'
             )}
           </div>
+        </div>
+
+        {/*
+          Guideline 5d: users must be told publishing isn't instant. TikTok
+          processes the upload after we hand it off, so the post can take a
+          few minutes to appear on the creator's profile even once Postora
+          shows it as sent.
+        */}
+        <div className="text-[13px] mb-[10px] opacity-70 text-balance">
+          {t(
+            'tiktok_processing_takes_a_few_minutes',
+            "After publishing, it can take a few minutes for TikTok to process your content before it's visible on your profile."
+          )}
         </div>
 
         {/*

@@ -1,8 +1,123 @@
 import {
-  IsBoolean, ValidateIf, IsIn, IsString, MaxLength, IsOptional, IsDefined, IsNumber, Min, Max, ValidateNested
+  IsBoolean, ValidateIf, IsIn, IsString, MaxLength, IsOptional, IsDefined, IsNumber, Min, Max, ValidateNested,
+  registerDecorator, ValidationArguments, ValidationOptions, ValidatorConstraint, ValidatorConstraintInterface,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { JSONSchema } from 'class-validator-jsonschema';
+
+// TikTok's Content Sharing UX Guidelines (Required UX Implementation, 3a/3b) require
+// these two cross-field rules to actually block publishing, not just be suggested by
+// the UI: branded content can never go out as SELF_ONLY, and turning on the
+// disclosure toggle without picking "Your brand" / "Branded content" must not be
+// submittable. The frontend also disables/greys these out live, but the DTO is the
+// authoritative check - it's what `form.trigger()` and the backend both run.
+@ValidatorConstraint({ name: 'IsBrandDisclosureComplete', async: false })
+export class IsBrandDisclosureCompleteConstraint
+  implements ValidatorConstraintInterface
+{
+  validate(_value: unknown, args: ValidationArguments): boolean {
+    const object = args.object as TikTokDto;
+    if (!object.disclose) {
+      return true;
+    }
+    return !!(object.brand_organic_toggle || object.brand_content_toggle);
+  }
+
+  defaultMessage(): string {
+    return 'You need to indicate if your content promotes yourself, a third party, or both.';
+  }
+}
+
+export function IsBrandDisclosureComplete(validationOptions?: ValidationOptions) {
+  return function (object: object, propertyName: string) {
+    registerDecorator({
+      target: object.constructor,
+      propertyName,
+      options: validationOptions,
+      validator: IsBrandDisclosureCompleteConstraint,
+    });
+  };
+}
+
+@ValidatorConstraint({ name: 'IsBrandedContentPrivacyAllowed', async: false })
+export class IsBrandedContentPrivacyAllowedConstraint
+  implements ValidatorConstraintInterface
+{
+  validate(_value: unknown, args: ValidationArguments): boolean {
+    const object = args.object as TikTokDto;
+    if (!object.brand_content_toggle) {
+      return true;
+    }
+    return object.privacy_level !== 'SELF_ONLY';
+  }
+
+  defaultMessage(): string {
+    return 'Branded content visibility cannot be set to private.';
+  }
+}
+
+export function IsBrandedContentPrivacyAllowed(validationOptions?: ValidationOptions) {
+  return function (object: object, propertyName: string) {
+    registerDecorator({
+      target: object.constructor,
+      propertyName,
+      options: validationOptions,
+      validator: IsBrandedContentPrivacyAllowedConstraint,
+    });
+  };
+}
+
+// Mirrors of live TikTok state the composer fetches from creator_info, synced into
+// the form as hidden fields purely so `form.trigger()` - the one thing that gates
+// the Post/Add to Calendar button - can see them. Never sent to TikTok. `@IsOptional`
+// means "unknown yet" (still loading) passes; only an explicit `false` fails.
+@ValidatorConstraint({ name: 'IsCreatorAbleToPostNow', async: false })
+export class IsCreatorAbleToPostNowConstraint
+  implements ValidatorConstraintInterface
+{
+  validate(value: unknown): boolean {
+    return value !== false;
+  }
+
+  defaultMessage(): string {
+    return 'This TikTok account cannot post right now, please try again later.';
+  }
+}
+
+export function IsCreatorAbleToPostNow(validationOptions?: ValidationOptions) {
+  return function (object: object, propertyName: string) {
+    registerDecorator({
+      target: object.constructor,
+      propertyName,
+      options: validationOptions,
+      validator: IsCreatorAbleToPostNowConstraint,
+    });
+  };
+}
+
+@ValidatorConstraint({ name: 'IsVideoWithinCreatorMaxDuration', async: false })
+export class IsVideoWithinCreatorMaxDurationConstraint
+  implements ValidatorConstraintInterface
+{
+  validate(value: unknown): boolean {
+    return value !== false;
+  }
+
+  defaultMessage(): string {
+    return 'This video is longer than TikTok allows for this account.';
+  }
+}
+
+export function IsVideoWithinCreatorMaxDuration(validationOptions?: ValidationOptions) {
+  return function (object: object, propertyName: string) {
+    registerDecorator({
+      target: object.constructor,
+      propertyName,
+      options: validationOptions,
+      validator: IsVideoWithinCreatorMaxDurationConstraint,
+    });
+  };
+}
 
 export class TikTokMusic {
   @IsDefined()
@@ -125,11 +240,21 @@ export class TikTokDto {
   autoAddMusic: 'yes' | 'no';
 
   @IsBoolean()
+  @IsBrandedContentPrivacyAllowed()
   @JSONSchema({
     description:
-      'Applied only when content_posting_method=DIRECT_POST. Ignored by TikTok on UPLOAD.',
+      'Applied only when content_posting_method=DIRECT_POST. Ignored by TikTok on UPLOAD. Cannot be true together with privacy_level=SELF_ONLY - branded content visibility cannot be private.',
   })
   brand_content_toggle: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  @IsBrandDisclosureComplete()
+  @JSONSchema({
+    description:
+      'UI-only: whether the commercial content disclosure toggle is on. Not sent to TikTok. When true, at least one of brand_organic_toggle / brand_content_toggle is required.',
+  })
+  disclose?: boolean;
 
   @IsBoolean()
   @IsOptional()
@@ -175,4 +300,20 @@ export class TikTokDto {
       'Only use "UPLOAD" when the user explicitly asks to review or edit the post inside the TikTok app before publishing.',
   })
   content_posting_method: 'DIRECT_POST' | 'UPLOAD';
+
+  @IsOptional()
+  @IsCreatorAbleToPostNow()
+  @JSONSchema({
+    description:
+      'Runtime-only: mirrors creator_info().canPost right before publish. Not sent to TikTok.',
+  })
+  _creatorCanPost?: boolean;
+
+  @IsOptional()
+  @IsVideoWithinCreatorMaxDuration()
+  @JSONSchema({
+    description:
+      'Runtime-only: whether the selected video is within creator_info().maxDurationSeconds. Not sent to TikTok.',
+  })
+  _videoDurationValid?: boolean;
 }

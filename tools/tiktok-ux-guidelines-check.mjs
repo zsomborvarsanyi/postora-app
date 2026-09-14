@@ -20,9 +20,12 @@ const FRONT =
   'apps/frontend/src/components/new-launch/providers/tiktok/tiktok.provider.tsx';
 const BACK =
   'libraries/nestjs-libraries/src/integrations/social/tiktok.provider.ts';
+const DTO =
+  'libraries/nestjs-libraries/src/dtos/posts/providers-settings/tiktok.dto.ts';
 
 const front = readFileSync(FRONT, 'utf8');
 const back = readFileSync(BACK, 'utf8');
+const dto = readFileSync(DTO, 'utf8');
 
 let pass = 0;
 let fail = 0;
@@ -151,7 +154,50 @@ allit(
   /canPost:\s*false/.test(back)
 );
 
-console.log('\n8. NEGATIV KONTROLL: a mero kepes bukast is mutatni');
+console.log('9. KERESKEDELMI TARTALOM: cimke es kotelezo valasztas (3a)');
+// A cimke korabban statikus "Promotional Content" volt, brand_content_toggle
+// eseten is - a TikTok "Paid partnership"-et var ilyenkor.
+allit(
+  'a cimke brand_content_toggle szerint valt Paid Partnership-re',
+  /brand_content_toggle\s*\n?\s*\?[\s\S]{0,200}paid_partnership/.test(front)
+);
+allit(
+  'a DTO megkoveteli legalabb az egyik brand opciot, ha disclose be van kapcsolva',
+  /IsBrandDisclosureComplete/.test(dto) && /disclose\?:\s*boolean/.test(dto)
+);
+
+console.log('10. KERESKEDELMI TARTALOM: SELF_ONLY es branded content nem fer ossze (3b)');
+allit(
+  'a DTO tiltja a brand_content_toggle + SELF_ONLY kombinaciot',
+  /IsBrandedContentPrivacyAllowed/.test(dto)
+);
+allit(
+  'a felulet is tiltja/szurkiti a branded content jelolonegyzetet SELF_ONLY eseten',
+  /privacyLevelValue === 'SELF_ONLY'/.test(front)
+);
+
+console.log('11. POSZTOLHATOSAG ES VIDEOHOSSZ TENYLEGESEN BLOKKOLJA A KIKULDEST (1b/1c)');
+// Korabban a canPost=false es a tul hosszu video csak egy banner volt - nem
+// akadalyozta meg a posztolast. Ezeknek most a form.trigger()-t kell buktatniuk.
+allit(
+  'a DTO-ban van futasidejű canPost-validator, ami tenylegesen buktat',
+  /IsCreatorAbleToPostNow/.test(dto) && /_creatorCanPost\?:\s*boolean/.test(dto)
+);
+allit(
+  'a DTO-ban van futasidejű videohossz-validator, ami tenylegesen buktat',
+  /IsVideoWithinCreatorMaxDuration/.test(dto) &&
+    /_videoDurationValid\?:\s*boolean/.test(dto)
+);
+allit(
+  'a felulet szinkronizalja a canPost-ot a rejtett mezobe',
+  /setValue\('_creatorCanPost'/.test(front)
+);
+allit(
+  'a felulet tenylegesen leméri a video hosszat (nem csak megjeleniti)',
+  /setValue\('_videoDurationValid'/.test(front)
+);
+
+console.log('\n12. NEGATIV KONTROLL: a mero kepes bukast is mutatni');
 allit(
   'egy nem letezo minta NEM talalhato',
   !front.includes('ez-a-minta-sehol-nincs-a-fajlban')
