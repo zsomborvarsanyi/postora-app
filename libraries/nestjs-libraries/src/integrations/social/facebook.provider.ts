@@ -771,30 +771,82 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
     let finalId = '';
     let finalUrl = '';
     if (hasExtension(firstPost?.media?.[0]?.path, 'mp4')) {
-      const {
-        id: videoId,
-        permalink_url,
-        ...all
-      } = await (
+      // Feed video and Reels are two different products on two different
+      // endpoints. /videos only INGESTS the file; Facebook then auto-creates a
+      // reel object around a vertical video, so the permalink looks like
+      // /reel/<id> and the post looks fine - but it never enters Reels
+      // distribution and gets effectively no views (measured on this Page:
+      // tens of thousands of views per Reel published the proper way, single
+      // digits per Reel published through /videos). Reels have to go through
+      // the dedicated three-phase Reels Publishing API, which is the same
+      // start -> upload -> finish shape the story path above already uses.
+      //
+      // Consequence to be aware of: /video_reels enforces the Reels media
+      // spec (9:16, 3-90s). A landscape or over-long feed video is rejected
+      // here instead of silently becoming a dead post. That is deliberate -
+      // a loud failure beats a published post nobody sees. Supporting real
+      // landscape feed video again needs an explicit post_type setting, not a
+      // silent fallback to /videos.
+      const { video_id, upload_url } = await (
         await this.fetch(
-          `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${id}/videos?access_token=${accessToken}&fields=id,permalink_url`,
+          `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${id}/video_reels?upload_phase=start&access_token=${accessToken}`,
           {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-              file_url: firstPost?.media?.[0]?.path!,
-              description: firstPost.message,
-              published: true,
-            }),
           },
-          'upload mp4'
+          'start reel upload'
         )
       ).json();
 
-      finalUrl = 'https://www.facebook.com/reel/' + videoId;
-      finalId = videoId;
+      // Hosted upload: Facebook pulls the file itself from the file_url
+      // header. The upload host AND its api version come from upload_url -
+      // Facebook may hand back a different version than the one we asked for,
+      // so never rebuild this path from META_GRAPH_API_VERSION.
+      await this.fetch(
+        upload_url,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `OAuth ${accessToken}`,
+            file_url: firstPost?.media?.[0]?.path!,
+          },
+        },
+        'upload reel'
+      );
+
+      // finish fails while the video is still being ingested, so wait for the
+      // upload to land first. Same budget as the story path in post().
+      const uploadStarted = Date.now();
+      while (!(await this.fbVideoStatus(video_id, accessToken))) {
+        if (Date.now() - uploadStarted > 8 * 60 * 1000) {
+          throw new BadBody(
+            this.identifier,
+            '{}',
+            '{}',
+            'Video processing timed out'
+          );
+        }
+
+        await timer(10000);
+      }
+
+      // This is the call that actually publishes, and it is irreversible. The
+      // workflow runs postSocialPending with maximumAttempts: 1 precisely so a
+      // retry cannot publish a second reel.
+      await this.fetch(
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${id}/video_reels?upload_phase=finish&video_id=${video_id}&video_state=PUBLISHED&description=${encodeURIComponent(
+          firstPost.message || ''
+        )}&access_token=${accessToken}`,
+        {
+          method: 'POST',
+        },
+        'publish reel'
+      );
+
+      finalUrl = 'https://www.facebook.com/reel/' + video_id;
+      finalId = video_id;
     } else {
       const uploadPhotos = !firstPost?.media?.length
         ? []
