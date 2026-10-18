@@ -14,7 +14,7 @@ export const useCustomProviderFunction = () => {
           data: customData,
         }),
       });
-      if (load.status > 299 && load.status < 200) {
+      if (load.status > 299 || load.status < 200) {
         throw new Error('Failed to fetch');
       }
       return load.json();

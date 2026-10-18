@@ -393,6 +393,7 @@ export class IntegrationsController {
           return false;
         }
 
+        console.log(err);
         return false;
       }
     }

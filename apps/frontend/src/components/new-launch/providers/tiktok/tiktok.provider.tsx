@@ -74,24 +74,35 @@ const TikTokSettings: FC<{
     let cancelled = false;
     setCreatorLoading(true);
     setCreatorError('');
+    const creatorInfoFailed = () => {
+      if (cancelled) return;
+      setCreatorError(
+        t(
+          'tiktok_creator_info_failed',
+          'Could not load your TikTok account settings. Reconnect the channel and try again.'
+        )
+      );
+    };
     customFunc
       .get('creatorInfo')
-      .then((info: TikTokCreatorInfo) => {
+      .then((info: TikTokCreatorInfo | false) => {
         if (cancelled) return;
+        // The backend's generic custom-function route swallows an unexpected
+        // failure (a network error calling TikTok, a refresh that didn't
+        // produce a token, ...) into a plain `false` with a 200 status --
+        // nothing we can tell apart from a real TikTokCreatorInfo by status
+        // code. Treating it as "no error, no options" left the privacy
+        // dropdown permanently empty and disabled with no explanation at all.
+        if (!info || typeof info !== 'object') {
+          creatorInfoFailed();
+          return;
+        }
         setCreator(info);
-        if (info && !info.canPost) {
+        if (!info.canPost) {
           setCreatorError(info.reason);
         }
       })
-      .catch(() => {
-        if (cancelled) return;
-        setCreatorError(
-          t(
-            'tiktok_creator_info_failed',
-            'Could not load your TikTok account settings. Reconnect the channel and try again.'
-          )
-        );
-      })
+      .catch(creatorInfoFailed)
       .finally(() => {
         if (!cancelled) setCreatorLoading(false);
       });
