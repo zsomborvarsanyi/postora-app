@@ -22,6 +22,19 @@ import { getSsrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/s
 import { Integration } from '@prisma/client';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
 
+// A chunk PUT answered with an HTTP response (so TikTok's edge was reached),
+// just not one handleErrors recognizes - a CloudFront error page, a bare
+// "null" body, etc. This is NOT the same ambiguity as fetch() itself throwing
+// (a dropped connection, where TikTok may or may not have gotten the bytes):
+// here we know the attempt didn't cleanly succeed. postPending rethrows this
+// distinctly so the *workflow's* existing whole-post retry loop (fresh init,
+// fresh upload_url, up to 5 attempts) handles it, instead of either
+// resubmitting the same byte range (confirmed to get a 416 back - TikTok had
+// already recorded it) or waiting on checkPostStatus for a publish that may
+// never have actually received its bytes (confirmed to hang ~30 minutes
+// before giving up).
+class UploadResponseError extends Error {}
+
 @Rules(
   [
     'TikTok can have one video or one picture or multiple pictures, it cannot be without an attachment.',
@@ -815,14 +828,11 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
   // confirming TikTok had already recorded that range. Re-sending bytes TikTok
   // may already have is how you corrupt the upload session, not recover it.
   //
-  // So: a response TikTok's handleErrors recognizes (access_token_invalid,
+  // A response TikTok's handleErrors recognizes (access_token_invalid,
   // file_format_check_failed, etc.) is a real, final rejection - fail the
-  // post immediately via BadBody, same as before. Anything else is ambiguous
-  // (TikTok may have accepted the bytes despite the odd response) - throw a
-  // plain Error instead of BadBody so the caller's existing network-error
-  // handling takes over: treat the post as pending and let checkPostStatus
-  // poll TikTok's own publish-status endpoint for the real verdict, instead
-  // of us guessing by resubmitting.
+  // post immediately via BadBody, same as before. Anything else gets a
+  // distinctly-typed UploadResponseError - see its definition for why this
+  // is neither resubmitted nor treated as a silent-accept.
   private async uploadTikTokVideoChunk(
     uploadUrl: string,
     path: string,
@@ -866,8 +876,8 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
       );
     }
 
-    throw new Error(
-      `Ambiguous TikTok upload response (status ${upload.status}): ${text}`
+    throw new UploadResponseError(
+      `Unrecognized TikTok upload response (status ${upload.status}): ${text}`
     );
   }
 
@@ -987,10 +997,20 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
           throw err;
         }
 
-        // A network error here is ambiguous - TikTok may have received all
-        // the bytes and still publish. Return pending and let checkPostStatus
-        // deliver TikTok's own verdict instead of letting the caller retry
-        // the publish.
+        // A chunk PUT got a response but not one we could make sense of -
+        // rethrow so the workflow's own retry loop starts a fresh attempt
+        // (new init, new upload_url) instead of this activity either
+        // resubmitting the same bytes or polling a publish_id that may never
+        // resolve.
+        if (err instanceof UploadResponseError) {
+          throw err;
+        }
+
+        // A genuine network error (fetch itself threw, e.g. a dropped
+        // connection) is ambiguous - TikTok may have received all the bytes
+        // and still publish. Return pending and let checkPostStatus deliver
+        // TikTok's own verdict instead of letting the caller retry the
+        // publish.
       }
     }
 
