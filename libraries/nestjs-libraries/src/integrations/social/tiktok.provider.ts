@@ -807,10 +807,15 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     return createReadStream(path, { start, end });
   }
 
-  // Uploads a single byte range, retrying a handful of times on a 5xx from
-  // the upload_url itself (e.g. a CloudFront edge hiccup on TikTok's side) -
-  // this is a transient infra response, not a rejection of the content, and
-  // used to fail the whole post on the very first blip.
+  // Uploads a single byte range, retrying a handful of times when the
+  // upload_url itself answers with something that isn't one of TikTok's
+  // documented error codes (handleErrors returns undefined) - seen in
+  // practice as a CloudFront edge error page, or a bare "null" body with no
+  // TikTok-recognizable content. Neither looks like TikTok actually
+  // evaluating and rejecting the chunk, so treat it as a transient transport
+  // problem instead of failing the whole post on the first odd response. A
+  // real, classified TikTok error (access_token_invalid, file_format_check_failed,
+  // etc.) still fails immediately, same as before.
   private async uploadTikTokVideoChunk(
     uploadUrl: string,
     path: string,
@@ -846,8 +851,8 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     const text = await upload.text().catch(() => '{}');
     const handleError = this.handleErrors(text);
 
-    if (totalRetries <= 2 && !handleError && upload.status >= 500) {
-      await timer(5000);
+    if (totalRetries <= 3 && !handleError) {
+      await timer(5000 * (totalRetries + 1));
       return this.uploadTikTokVideoChunk(
         uploadUrl,
         path,
@@ -861,7 +866,7 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
 
     throw new BadBody(
       'tiktok-error-upload',
-      text,
+      `status ${upload.status}: ${text}`,
       Buffer.from(text),
       handleError?.value || 'Failed to upload the video to TikTok'
     );
