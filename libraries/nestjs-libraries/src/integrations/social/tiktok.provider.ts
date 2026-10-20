@@ -807,6 +807,66 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     return createReadStream(path, { start, end });
   }
 
+  // Uploads a single byte range, retrying a handful of times on a 5xx from
+  // the upload_url itself (e.g. a CloudFront edge hiccup on TikTok's side) -
+  // this is a transient infra response, not a rejection of the content, and
+  // used to fail the whole post on the very first blip.
+  private async uploadTikTokVideoChunk(
+    uploadUrl: string,
+    path: string,
+    start: number,
+    end: number,
+    videoSize: number,
+    contentType: string,
+    totalRetries = 0
+  ): Promise<void> {
+    const contentLength = end - start + 1;
+    const body = await this.tiktokChunkStream(path, start, end);
+
+    const upload = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': contentType,
+        'Content-Length': String(contentLength),
+        'Content-Range': `bytes ${start}-${end}/${videoSize}`,
+      },
+      body,
+      // Required by undici when streaming a request body.
+      duplex: 'half',
+    } as any);
+
+    if (
+      upload.status === 200 ||
+      upload.status === 201 ||
+      upload.status === 206
+    ) {
+      return;
+    }
+
+    const text = await upload.text().catch(() => '{}');
+    const handleError = this.handleErrors(text);
+
+    if (totalRetries <= 2 && !handleError && upload.status >= 500) {
+      await timer(5000);
+      return this.uploadTikTokVideoChunk(
+        uploadUrl,
+        path,
+        start,
+        end,
+        videoSize,
+        contentType,
+        totalRetries + 1
+      );
+    }
+
+    throw new BadBody(
+      'tiktok-error-upload',
+      text,
+      Buffer.from(text),
+      handleError?.value || 'Failed to upload the video to TikTok'
+    );
+  }
+
   // Streams the video bytes to the upload_url returned by the init call.
   // We use the global fetch (not this.fetch) because chunked uploads answer
   // with 206 (Partial Content), which this.fetch would treat as an error.
@@ -822,36 +882,15 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
       const start = i * chunkSize;
       const end =
         i === totalChunkCount - 1 ? videoSize - 1 : start + chunkSize - 1;
-      const contentLength = end - start + 1;
 
-      const body = await this.tiktokChunkStream(path, start, end);
-
-      const upload = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': contentType,
-          'Content-Length': String(contentLength),
-          'Content-Range': `bytes ${start}-${end}/${videoSize}`,
-        },
-        body,
-        // Required by undici when streaming a request body.
-        duplex: 'half',
-      } as any);
-
-      if (
-        upload.status !== 200 &&
-        upload.status !== 201 &&
-        upload.status !== 206
-      ) {
-        const text = await upload.text().catch(() => '{}');
-        const handleError = this.handleErrors(text);
-        throw new BadBody(
-          'tiktok-error-upload',
-          text,
-          Buffer.from(text),
-          handleError?.value || 'Failed to upload the video to TikTok'
-        );
-      }
+      await this.uploadTikTokVideoChunk(
+        uploadUrl,
+        path,
+        start,
+        end,
+        videoSize,
+        contentType
+      );
     }
   }
 
