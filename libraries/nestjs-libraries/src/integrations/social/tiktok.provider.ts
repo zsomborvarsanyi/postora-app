@@ -807,23 +807,29 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     return createReadStream(path, { start, end });
   }
 
-  // Uploads a single byte range, retrying a handful of times when the
-  // upload_url itself answers with something that isn't one of TikTok's
-  // documented error codes (handleErrors returns undefined) - seen in
-  // practice as a CloudFront edge error page, or a bare "null" body with no
-  // TikTok-recognizable content. Neither looks like TikTok actually
-  // evaluating and rejecting the chunk, so treat it as a transient transport
-  // problem instead of failing the whole post on the first odd response. A
-  // real, classified TikTok error (access_token_invalid, file_format_check_failed,
-  // etc.) still fails immediately, same as before.
+  // Uploads a single byte range. Deliberately does NOT retry a chunk PUT
+  // in-place: TikTok's upload_url turns out to sometimes accept a chunk's
+  // bytes but still answer with a non-2xx/206 status (seen as a CloudFront
+  // edge error page, and separately as a bare "null" body) - resending the
+  // same Content-Range afterwards got a 416 (Range Not Satisfiable) back,
+  // confirming TikTok had already recorded that range. Re-sending bytes TikTok
+  // may already have is how you corrupt the upload session, not recover it.
+  //
+  // So: a response TikTok's handleErrors recognizes (access_token_invalid,
+  // file_format_check_failed, etc.) is a real, final rejection - fail the
+  // post immediately via BadBody, same as before. Anything else is ambiguous
+  // (TikTok may have accepted the bytes despite the odd response) - throw a
+  // plain Error instead of BadBody so the caller's existing network-error
+  // handling takes over: treat the post as pending and let checkPostStatus
+  // poll TikTok's own publish-status endpoint for the real verdict, instead
+  // of us guessing by resubmitting.
   private async uploadTikTokVideoChunk(
     uploadUrl: string,
     path: string,
     start: number,
     end: number,
     videoSize: number,
-    contentType: string,
-    totalRetries = 0
+    contentType: string
   ): Promise<void> {
     const contentLength = end - start + 1;
     const body = await this.tiktokChunkStream(path, start, end);
@@ -851,24 +857,17 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     const text = await upload.text().catch(() => '{}');
     const handleError = this.handleErrors(text);
 
-    if (totalRetries <= 3 && !handleError) {
-      await timer(5000 * (totalRetries + 1));
-      return this.uploadTikTokVideoChunk(
-        uploadUrl,
-        path,
-        start,
-        end,
-        videoSize,
-        contentType,
-        totalRetries + 1
+    if (handleError) {
+      throw new BadBody(
+        'tiktok-error-upload',
+        `status ${upload.status}: ${text}`,
+        Buffer.from(text),
+        handleError.value
       );
     }
 
-    throw new BadBody(
-      'tiktok-error-upload',
-      `status ${upload.status}: ${text}`,
-      Buffer.from(text),
-      handleError?.value || 'Failed to upload the video to TikTok'
+    throw new Error(
+      `Ambiguous TikTok upload response (status ${upload.status}): ${text}`
     );
   }
 
