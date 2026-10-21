@@ -7,12 +7,13 @@ services:
     # package.json's pm2-staggered script, which still only staggers them by
     # a fixed delay, not by readiness) - on a RAM/CPU constrained host one of
     # them can stall mid-bootstrap and never bind its port, while PM2 still
-    # reports it "online". This healthcheck hits the backend specifically
-    # (nginx's /api/ location proxies there, not frontend's /) so a stalled
-    # backend is actually detected, and autoheal (below) restarts the
-    # container when it is - no silent half-up state.
+    # reports it "online". Checks both backend (nginx's /api/ location, not
+    # frontend's /) and orchestrator (its own /health/status, which in turn
+    # verifies the Temporal connection) directly on its port - either one
+    # stalled is a silent half-up state otherwise, and autoheal (below)
+    # restarts the container once this actually detects it.
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/', r => process.exit(r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"]
+      test: ["CMD", "node", "-e", "const h=require('http');const c=u=>new Promise((res,rej)=>h.get(u,r=>r.statusCode<400?res():rej()).on('error',rej));Promise.all([c('http://localhost:5000/api/'),c('http://localhost:3002/health/status')]).then(()=>process.exit(0)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
