@@ -769,11 +769,16 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
   // ---------------------------------------------------------------------------
   // NEW FILE_UPLOAD IMPLEMENTATION (no PULL_FROM_URL for videos)
   // ---------------------------------------------------------------------------
-  // TikTok video chunk constraints: a chunk must be between 5MB and 64MB,
-  // and the final chunk must NOT exceed chunk_size (it may be smaller, down
-  // to whatever remainder is left). When the whole file fits in a single
-  // chunk (<= 64MB) we upload it in one request; otherwise we split it into
-  // 10MB chunks, with the last chunk carrying only the remainder.
+  // TikTok video chunk constraints (confirmed against TikTok's own Content
+  // Posting API / media transfer guide, 2026-10-21): regular chunks must be
+  // between 5MB and 64MB; total_chunk_count = floor(video_size / chunk_size);
+  // the LAST chunk absorbs the remainder and may exceed chunk_size, up to
+  // 128MB - this is explicit in TikTok's own worked example (50,000,123B
+  // video, 10,000,000B chunk_size -> total_chunk_count=5, last chunk
+  // 10,000,123B). Math.ceil here is wrong: it was tried briefly and TikTok's
+  // init call rejected it outright with "The total chunk count is invalid"
+  // (confirmed live on 2026-10-21 against a 189,502,650B video: floor gives
+  // the required 18, ceil's 19 was refused).
   private static readonly TIKTOK_MAX_SINGLE_CHUNK = 64 * 1024 * 1024;
   private static readonly TIKTOK_CHUNK_SIZE = 10 * 1024 * 1024;
 
@@ -785,12 +790,7 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     const chunkSize = TiktokProvider.TIKTOK_CHUNK_SIZE;
     return {
       chunkSize,
-      // Math.ceil, not Math.floor: when videoSize isn't an exact multiple of
-      // chunkSize, floor() under-counts the chunks and the loop below folds
-      // the leftover bytes into the last chunk, which then exceeds the
-      // chunk_size declared to TikTok in the init call - a mismatch between
-      // the announced partitioning and the bytes actually sent.
-      totalChunkCount: Math.ceil(videoSize / chunkSize),
+      totalChunkCount: Math.floor(videoSize / chunkSize),
     };
   }
 
