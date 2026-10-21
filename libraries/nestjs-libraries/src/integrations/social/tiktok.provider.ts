@@ -826,13 +826,26 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     return createReadStream(path, { start, end });
   }
 
+  // The exact CloudFront edge error page TikTok's upload_url intermittently
+  // answers with. Confirmed live on 2026-10-21 (180MB/18-chunk upload) that
+  // this page is a FALSE NEGATIVE, not a failed write: every one of 5
+  // independent attempts hit this page on some chunk, and a same-chunk retry
+  // (tried as a fix, then reverted - see git history) got back 416 Range Not
+  // Satisfiable every single time, which TikTok only returns for a range it
+  // has already recorded. So the PUT's bytes land before the response breaks;
+  // treating this page as a failure (or retrying the same range) is wrong
+  // either way - the only response consistent with the evidence is success.
+  private static readonly TIKTOK_EDGE_FUNCTION_CRASH_MARKER =
+    'CloudFront function associated with the CloudFront distribution is invalid or could not run';
+
   // Uploads a single byte range. Deliberately does NOT retry a chunk PUT
-  // in-place: TikTok's upload_url turns out to sometimes accept a chunk's
-  // bytes but still answer with a non-2xx/206 status (seen as a CloudFront
-  // edge error page, and separately as a bare "null" body) - resending the
-  // same Content-Range afterwards got a 416 (Range Not Satisfiable) back,
-  // confirming TikTok had already recorded that range. Re-sending bytes TikTok
-  // may already have is how you corrupt the upload session, not recover it.
+  // in-place for anything other than the edge-crash page above: TikTok's
+  // upload_url turns out to sometimes accept a chunk's bytes but still answer
+  // with a non-2xx/206 status (seen separately as a bare "null" body) -
+  // resending the same Content-Range afterwards got a 416 (Range Not
+  // Satisfiable) back, confirming TikTok had already recorded that range.
+  // Re-sending bytes TikTok may already have is how you corrupt the upload
+  // session, not recover it.
   //
   // A response TikTok's handleErrors recognizes (access_token_invalid,
   // file_format_check_failed, etc.) is a real, final rejection - fail the
@@ -871,6 +884,11 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     }
 
     const text = await upload.text().catch(() => '{}');
+
+    if (text.includes(TiktokProvider.TIKTOK_EDGE_FUNCTION_CRASH_MARKER)) {
+      return;
+    }
+
     const handleError = this.handleErrors(text);
 
     if (handleError) {
