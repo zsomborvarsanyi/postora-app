@@ -3,6 +3,22 @@ services:
     image: ghcr.io/gitroomhq/postiz-app:latest
     container_name: postiz
     restart: always
+    # backend/orchestrator/frontend start in parallel under pm2 (see
+    # package.json's pm2-staggered script, which still only staggers them by
+    # a fixed delay, not by readiness) - on a RAM/CPU constrained host one of
+    # them can stall mid-bootstrap and never bind its port, while PM2 still
+    # reports it "online". This healthcheck hits the backend specifically
+    # (nginx's /api/ location proxies there, not frontend's /) so a stalled
+    # backend is actually detected, and autoheal (below) restarts the
+    # container when it is - no silent half-up state.
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/', r => process.exit(r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    labels:
+      autoheal: "true"
     environment:
       # === Required Settings
       MAIN_URL: 'http://localhost:4007'
@@ -257,6 +273,20 @@ services:
       - temporal-network
     ports:
       - '8080:8080'
+
+  # Restarts any container labeled autoheal:"true" once Docker marks it
+  # unhealthy (plain `docker compose` doesn't do this on its own - restart:
+  # always only reacts to the container exiting, not to a stalled process
+  # inside it that's still running). See postiz's healthcheck above.
+  autoheal:
+    image: willfarrell/autoheal:latest
+    container_name: autoheal
+    restart: always
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+      AUTOHEAL_INTERVAL: '10'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   postgres-volume:
