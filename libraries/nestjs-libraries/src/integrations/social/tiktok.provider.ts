@@ -769,10 +769,11 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
   // ---------------------------------------------------------------------------
   // NEW FILE_UPLOAD IMPLEMENTATION (no PULL_FROM_URL for videos)
   // ---------------------------------------------------------------------------
-  // TikTok video chunk constraints: a chunk must be between 5MB and 64MB.
-  // When the whole file fits in a single chunk (<= 64MB) we upload it in one
-  // request; otherwise we split it into 10MB chunks (the final chunk carries
-  // the remainder, which TikTok allows to exceed chunk_size).
+  // TikTok video chunk constraints: a chunk must be between 5MB and 64MB,
+  // and the final chunk must NOT exceed chunk_size (it may be smaller, down
+  // to whatever remainder is left). When the whole file fits in a single
+  // chunk (<= 64MB) we upload it in one request; otherwise we split it into
+  // 10MB chunks, with the last chunk carrying only the remainder.
   private static readonly TIKTOK_MAX_SINGLE_CHUNK = 64 * 1024 * 1024;
   private static readonly TIKTOK_CHUNK_SIZE = 10 * 1024 * 1024;
 
@@ -784,7 +785,12 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     const chunkSize = TiktokProvider.TIKTOK_CHUNK_SIZE;
     return {
       chunkSize,
-      totalChunkCount: Math.floor(videoSize / chunkSize),
+      // Math.ceil, not Math.floor: when videoSize isn't an exact multiple of
+      // chunkSize, floor() under-counts the chunks and the loop below folds
+      // the leftover bytes into the last chunk, which then exceeds the
+      // chunk_size declared to TikTok in the init call - a mismatch between
+      // the announced partitioning and the bytes actually sent.
+      totalChunkCount: Math.ceil(videoSize / chunkSize),
     };
   }
 
