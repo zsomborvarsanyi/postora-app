@@ -826,13 +826,26 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     return createReadStream(path, { start, end });
   }
 
+  // A CloudFront edge FUNCTION crashing (vs. TikTok's own origin answering)
+  // never reached TikTok's backend at all, so - unlike the ambiguous cases
+  // below - resending the same byte range here cannot duplicate anything
+  // the origin already recorded. Observed live on 2026-10-21 on an 18-chunk
+  // (180MB) upload: every one of 5 fresh sessions (fresh init, fresh
+  // upload_url) died on this exact page on some chunk, so retrying in a new
+  // session was never going to get further than retrying in place.
+  private static readonly TIKTOK_EDGE_FUNCTION_CRASH_MARKER =
+    'CloudFront function associated with the CloudFront distribution is invalid or could not run';
+  private static readonly TIKTOK_CHUNK_RETRY_ATTEMPTS = 4;
+  private static readonly TIKTOK_CHUNK_RETRY_DELAY_MS = 3000;
+
   // Uploads a single byte range. Deliberately does NOT retry a chunk PUT
-  // in-place: TikTok's upload_url turns out to sometimes accept a chunk's
-  // bytes but still answer with a non-2xx/206 status (seen as a CloudFront
-  // edge error page, and separately as a bare "null" body) - resending the
-  // same Content-Range afterwards got a 416 (Range Not Satisfiable) back,
-  // confirming TikTok had already recorded that range. Re-sending bytes TikTok
-  // may already have is how you corrupt the upload session, not recover it.
+  // in-place for most failures: TikTok's upload_url turns out to sometimes
+  // accept a chunk's bytes but still answer with a non-2xx/206 status (seen
+  // as a bare "null" body) - resending the same Content-Range afterwards got
+  // a 416 (Range Not Satisfiable) back, confirming TikTok had already
+  // recorded that range. Re-sending bytes TikTok may already have is how you
+  // corrupt the upload session, not recover it. The one exception is the
+  // edge-function-crash page above, retried in place - see its comment.
   //
   // A response TikTok's handleErrors recognizes (access_token_invalid,
   // file_format_check_failed, etc.) is a real, final rejection - fail the
@@ -848,43 +861,64 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     contentType: string
   ): Promise<void> {
     const contentLength = end - start + 1;
-    const body = await this.tiktokChunkStream(path, start, end);
 
-    const upload = await fetch(uploadUrl, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': contentType,
-        'Content-Length': String(contentLength),
-        'Content-Range': `bytes ${start}-${end}/${videoSize}`,
-      },
-      body,
-      // Required by undici when streaming a request body.
-      duplex: 'half',
-    } as any);
-
-    if (
-      upload.status === 200 ||
-      upload.status === 201 ||
-      upload.status === 206
+    for (
+      let attempt = 1;
+      attempt <= TiktokProvider.TIKTOK_CHUNK_RETRY_ATTEMPTS;
+      attempt++
     ) {
-      return;
-    }
+      const body = await this.tiktokChunkStream(path, start, end);
 
-    const text = await upload.text().catch(() => '{}');
-    const handleError = this.handleErrors(text);
+      const upload = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': contentType,
+          'Content-Length': String(contentLength),
+          'Content-Range': `bytes ${start}-${end}/${videoSize}`,
+        },
+        body,
+        // Required by undici when streaming a request body.
+        duplex: 'half',
+      } as any);
 
-    if (handleError) {
-      throw new BadBody(
-        'tiktok-error-upload',
-        `status ${upload.status}: ${text}`,
-        Buffer.from(text),
-        handleError.value
+      if (
+        upload.status === 200 ||
+        upload.status === 201 ||
+        upload.status === 206
+      ) {
+        return;
+      }
+
+      const text = await upload.text().catch(() => '{}');
+
+      const isEdgeFunctionCrash = text.includes(
+        TiktokProvider.TIKTOK_EDGE_FUNCTION_CRASH_MARKER
+      );
+      if (
+        isEdgeFunctionCrash &&
+        attempt < TiktokProvider.TIKTOK_CHUNK_RETRY_ATTEMPTS
+      ) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, TiktokProvider.TIKTOK_CHUNK_RETRY_DELAY_MS)
+        );
+        continue;
+      }
+
+      const handleError = this.handleErrors(text);
+
+      if (handleError) {
+        throw new BadBody(
+          'tiktok-error-upload',
+          `status ${upload.status}: ${text}`,
+          Buffer.from(text),
+          handleError.value
+        );
+      }
+
+      throw new UploadResponseError(
+        `Unrecognized TikTok upload response (status ${upload.status}): ${text}`
       );
     }
-
-    throw new UploadResponseError(
-      `Unrecognized TikTok upload response (status ${upload.status}): ${text}`
-    );
   }
 
   // Streams the video bytes to the upload_url returned by the init call.
