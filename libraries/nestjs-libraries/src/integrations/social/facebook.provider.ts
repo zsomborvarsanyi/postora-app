@@ -1012,6 +1012,31 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
     ];
   }
 
+  // Meta "private reply": a DM triggered from a comment, sent through the
+  // Page's own /messages edge. Only one private reply is allowed per comment,
+  // and only within 7 days of the comment - Meta enforces both, this method
+  // just forwards the request.
+  async privateReply(
+    integration: Integration,
+    commentId: string,
+    message: string
+  ): Promise<void> {
+    await this.fetch(
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${integration.internalId}/messages?access_token=${integration.token}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          recipient: { comment_id: commentId },
+          message: { text: message },
+        }),
+      },
+      'private reply'
+    );
+  }
+
   async analytics(
     id: string,
     accessToken: string,

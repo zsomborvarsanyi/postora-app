@@ -221,6 +221,28 @@ export class IntegrationRepository {
     });
   }
 
+  // Org-agnostic lookup used by the inbound Meta comments webhook: at that
+  // point we only know the Facebook Page id / Instagram Business Account id
+  // from the webhook payload, not which organization it belongs to.
+  findActiveIntegrationByInternalId(
+    internalId: string,
+    providerIdentifiers: string[]
+  ) {
+    return this._integration.model.integration.findFirst({
+      where: {
+        internalId,
+        providerIdentifier: { in: providerIdentifiers },
+        deletedAt: null,
+      },
+    });
+  }
+
+  getIntegrationByIdOnly(id: string) {
+    return this._integration.model.integration.findFirst({
+      where: { id, deletedAt: null },
+    });
+  }
+
   // Moves a channel to another provider in place (MIGRATE_PROVIDERS): only the
   // provider and the app-scoped ids change, so the integration id - and with it
   // scheduled posts, settings and customers - survives the migration. The

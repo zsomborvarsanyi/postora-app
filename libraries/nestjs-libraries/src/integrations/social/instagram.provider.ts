@@ -1040,6 +1040,45 @@ export class InstagramProvider
     ];
   }
 
+  // Meta "private reply": a DM triggered from a comment. The Send API for
+  // this always goes through the connected Facebook Page's /messages edge,
+  // but integration.internalId here is the IG Business Account id, not the
+  // Page id, and the Page id is never persisted on this integration. Resolve
+  // it on the fly: calling /me with the Page access token returns the Page
+  // itself. Only one private reply is allowed per comment, and only within 7
+  // days of the comment - Meta enforces both, this method just forwards the
+  // request.
+  async privateReply(
+    integration: Integration,
+    commentId: string,
+    message: string
+  ): Promise<void> {
+    const [accessToken] = integration.token.split('___');
+
+    const { id: pageId } = await (
+      await this.fetch(
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me?access_token=${accessToken}`,
+        {},
+        'resolve page id for private reply'
+      )
+    ).json();
+
+    await this.fetch(
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${pageId}/messages?access_token=${accessToken}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          recipient: { comment_id: commentId },
+          message: { text: message },
+        }),
+      },
+      'private reply'
+    );
+  }
+
   private setTitle(name: string) {
     switch (name) {
       case 'likes': {

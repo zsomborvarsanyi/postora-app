@@ -104,6 +104,12 @@ export interface ISocialMediaIntegration {
     postDetails: PostDetails[],
     integration: Integration
   ): Promise<PostResponse[]>; // Schedules a new post
+
+  privateReply?(
+    integration: Integration,
+    commentId: string,
+    message: string
+  ): Promise<void>; // Sends a DM triggered from a comment (Meta "private reply"); only implemented where the platform supports it
 }
 
 export type PostResponse = {

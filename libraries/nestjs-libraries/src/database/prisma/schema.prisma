@@ -23,6 +23,7 @@ model Organization {
   shortlink           ShortLinkPreference  @default(ASK)
   autoPost            AutoPost[]
   Comments            Comments[]
+  commentAutomationRules CommentAutomationRule[]
   credits             Credits[]
   customers           Customer[]
   errors              Errors[]
@@ -345,6 +346,8 @@ model Integration {
   orderItems            OrderItems[]
   plugs                 Plugs[]
   posts                 Post[]
+  commentAutomationRules CommentAutomationRule[]
+  processedComments     ProcessedComment[]
 
   @@unique([organizationId, internalId])
   @@index([rootInternalId])
@@ -609,6 +612,46 @@ model Webhooks {
 
   @@index([organizationId])
   @@index([deletedAt])
+}
+
+model CommentAutomationRule {
+  id                String             @id @default(uuid())
+  organizationId    String
+  integrationId     String
+  order             Int                @default(0)
+  active            Boolean            @default(true)
+  matchType         CommentMatchType   @default(CONTAINS)
+  triggers          String
+  publicReply       String?
+  privateReply      String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  deletedAt         DateTime?
+  organization      Organization       @relation(fields: [organizationId], references: [id])
+  integration       Integration        @relation(fields: [integrationId], references: [id])
+  processedComments ProcessedComment[]
+
+  @@index([organizationId])
+  @@index([integrationId])
+  @@index([deletedAt])
+  @@index([integrationId, active, order])
+}
+
+model ProcessedComment {
+  id                 String                 @id @default(uuid())
+  integrationId      String
+  providerCommentId  String
+  ruleId             String?
+  publicReplySentAt  DateTime?
+  privateReplySentAt DateTime?
+  error              String?
+  createdAt          DateTime               @default(now())
+  integration        Integration            @relation(fields: [integrationId], references: [id])
+  rule               CommentAutomationRule? @relation(fields: [ruleId], references: [id])
+
+  @@unique([integrationId, providerCommentId])
+  @@index([integrationId])
+  @@index([ruleId])
 }
 
 model AutoPost {
@@ -928,6 +971,11 @@ enum SubscriptionTier {
 enum Period {
   MONTHLY
   YEARLY
+}
+
+enum CommentMatchType {
+  CONTAINS
+  REGEX
 }
 
 enum Provider {

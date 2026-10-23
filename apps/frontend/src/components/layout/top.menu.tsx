@@ -136,6 +136,27 @@ export const useMenuItem = () => {
       path: '/plugs',
     },
     {
+      name: t('comment_automation', 'Comment automation'),
+      icon: (
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 20 20"
+          fill="none"
+        >
+          <path
+            d="M2.5 9.5C2.5 5.63401 6.02944 2.5 10 2.5C13.9706 2.5 17.5 5.63401 17.5 9.5C17.5 13.366 13.9706 16.5 10 16.5C9.03509 16.5 8.11437 16.3247 7.27343 16.0009L3.33333 17.5L4.44305 14.0397C3.25612 12.7636 2.5 11.1983 2.5 9.5Z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ),
+      path: '/comment-automation',
+    },
+    {
       name: t('integrations', 'Integrations'),
       icon: (
         <svg

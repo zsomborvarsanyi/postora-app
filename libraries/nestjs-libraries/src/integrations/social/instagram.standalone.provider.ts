@@ -247,6 +247,12 @@ export class InstagramStandaloneProvider
     );
   }
 
+  // No privateReply here on purpose: this provider never has
+  // instagram_manage_messages, and it never obtains a Facebook Page access
+  // token (it authenticates straight against graph.instagram.com), so there
+  // is no token/endpoint it could use to send a private reply. Comment
+  // automation falls back to public replies only for this connection type.
+
   async analytics(id: string, accessToken: string, date: number) {
     return instagramProvider.analytics(
       id,

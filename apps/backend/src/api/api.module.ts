@@ -5,6 +5,8 @@ import { UsersController } from '@gitroom/backend/api/routes/users.controller';
 import { AuthMiddleware } from '@gitroom/backend/services/auth/auth.middleware';
 import { StripeController } from '@gitroom/backend/api/routes/stripe.controller';
 import { StripeService } from '@gitroom/nestjs-libraries/services/stripe.service';
+import { MetaCommentsWebhookController } from '@gitroom/backend/api/routes/meta-comments.controller';
+import { CommentAutomationController } from '@gitroom/backend/api/routes/comment-automation.controller';
 import { AnalyticsController } from '@gitroom/backend/api/routes/analytics.controller';
 import { PoliciesGuard } from '@gitroom/backend/services/auth/permissions/permissions.guard';
 import { PermissionsService } from '@gitroom/backend/services/auth/permissions/permissions.service';
@@ -68,6 +70,7 @@ const authenticatedController = [
   OAuthAuthorizedController,
   AnnouncementsController,
   AdminController,
+  CommentAutomationController,
 ];
 @Module({
   imports: [UploadModule],
@@ -76,6 +79,7 @@ const authenticatedController = [
     : [
         RootController,
         StripeController,
+        MetaCommentsWebhookController,
         AuthController,
         PublicController,
         MonitorController,
