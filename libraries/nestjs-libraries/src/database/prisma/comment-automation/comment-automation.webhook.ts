@@ -56,3 +56,41 @@ export function extractCommentEvents(payload: any): ExtractedCommentEvent[] {
       .filter((event: any) => !!event.providerCommentId);
   });
 }
+
+export type ExtractedDirectMessageEvent = {
+  pageOrIgId: string;
+  senderId: string;
+  messageId: string;
+  messageText: string;
+};
+
+// Inbound Messenger/Instagram DM events arrive in a different array
+// (entry[].messaging[]) than comment events (entry[].changes[]), and need
+// their own is_echo filter: Meta also delivers OUR OWN outgoing messages
+// (including the replies this feature sends) back through this same
+// webhook, tagged message.is_echo - without filtering those out, every
+// automated reply would re-trigger itself.
+export function extractDirectMessageEvents(
+  payload: any
+): ExtractedDirectMessageEvent[] {
+  const entries = Array.isArray(payload?.entry) ? payload.entry : [];
+
+  return entries.flatMap((entry: any) => {
+    const messaging = Array.isArray(entry?.messaging) ? entry.messaging : [];
+
+    return messaging
+      .filter(
+        (event: any) =>
+          !!event?.message &&
+          !event.message.is_echo &&
+          !event.message.is_deleted
+      )
+      .map((event: any) => ({
+        pageOrIgId: entry.id,
+        senderId: event.sender?.id,
+        messageId: event.message?.mid,
+        messageText: event.message?.text || '',
+      }))
+      .filter((event: any) => !!event.senderId && !!event.messageId);
+  });
+}

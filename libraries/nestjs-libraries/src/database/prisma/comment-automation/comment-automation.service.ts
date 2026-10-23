@@ -8,10 +8,12 @@ import { Integration } from '@prisma/client';
 import {
   matchComment,
   MatchableRule,
+  pickReplyVariant,
 } from '@gitroom/nestjs-libraries/database/prisma/comment-automation/comment-automation.match';
 import {
   verifyMetaWebhookSignature,
   extractCommentEvents,
+  extractDirectMessageEvents,
 } from '@gitroom/nestjs-libraries/database/prisma/comment-automation/comment-automation.webhook';
 
 export { matchComment, MatchableRule };
@@ -48,6 +50,46 @@ export class CommentAutomationService {
     return this._commentAutomationRepository.reorder(orgId, integrationId, orderedIds);
   }
 
+  // Appends a copy of every rule on `sourceIntegrationId` to each target
+  // integration's own list. Every target is re-checked against `orgId`
+  // here, not just trusted from the request body - without this, a caller
+  // could pass another organization's integration id as a target and have
+  // our rule text start auto-replying on a channel we don't own.
+  async copyRulesToIntegrations(
+    orgId: string,
+    sourceIntegrationId: string,
+    targetIntegrationIds: string[]
+  ) {
+    const sourceRules = await this._commentAutomationRepository.getRules(
+      orgId,
+      sourceIntegrationId
+    );
+
+    if (!sourceRules.length) {
+      return { copied: 0 };
+    }
+
+    let copied = 0;
+    for (const targetIntegrationId of targetIntegrationIds) {
+      if (targetIntegrationId === sourceIntegrationId) continue;
+
+      const target = await this._integrationService.getIntegrationById(
+        orgId,
+        targetIntegrationId
+      );
+      if (!target) continue;
+
+      await this._commentAutomationRepository.copyRulesToIntegration(
+        orgId,
+        targetIntegrationId,
+        sourceRules
+      );
+      copied++;
+    }
+
+    return { copied };
+  }
+
   // Called once per incoming comment, from the comment-automation Temporal
   // activity. Dedup-safe: a repeated call for the same (integrationId,
   // providerCommentId) pair is a guaranteed no-op, even across retries.
@@ -66,7 +108,8 @@ export class CommentAutomationService {
     }
 
     const rules = await this._commentAutomationRepository.getActiveRulesForIntegration(
-      integration.id
+      integration.id,
+      'COMMENT'
     );
     const rule = matchComment(rules, commentText);
 
@@ -83,14 +126,17 @@ export class CommentAutomationService {
     let publicReplySentAt: Date | undefined;
     let privateReplySentAt: Date | undefined;
 
-    if (rule.publicReply) {
+    const publicReplyText = pickReplyVariant(rule.publicReply);
+    const privateReplyText = pickReplyVariant(rule.privateReply);
+
+    if (publicReplyText) {
       try {
         await provider.comment?.(
           integration.internalId,
           providerCommentId,
           providerCommentId,
           integration.token,
-          [{ id: providerCommentId, message: rule.publicReply, settings: {} }],
+          [{ id: providerCommentId, message: publicReplyText, settings: {} }],
           integration
         );
         publicReplySentAt = new Date();
@@ -99,9 +145,9 @@ export class CommentAutomationService {
       }
     }
 
-    if (rule.privateReply && provider.privateReply) {
+    if (privateReplyText && provider.privateReply) {
       try {
-        await provider.privateReply(integration, providerCommentId, rule.privateReply);
+        await provider.privateReply(integration, providerCommentId, privateReplyText);
         privateReplySentAt = new Date();
       } catch (err: any) {
         error = [error, `private reply failed: ${err?.message || err}`]
@@ -120,6 +166,63 @@ export class CommentAutomationService {
     return { matched: true, ruleId: rule.id, error };
   }
 
+  // Called once per inbound Instagram/Messenger direct message, mirroring
+  // processIncomingComment but on the DIRECT_MESSAGE rule set: no public
+  // reply concept, and the reply goes out as a normal message (not a
+  // comment-linked private reply, so none of Meta's once-per-comment/7-day
+  // limits apply here).
+  async processIncomingDirectMessage(
+    integration: Integration,
+    senderId: string,
+    messageId: string,
+    messageText: string
+  ) {
+    const created = await this._commentAutomationRepository.createProcessedComment({
+      integrationId: integration.id,
+      providerCommentId: messageId,
+    });
+
+    if (!created) {
+      return { alreadyProcessed: true };
+    }
+
+    const rules = await this._commentAutomationRepository.getActiveRulesForIntegration(
+      integration.id,
+      'DIRECT_MESSAGE'
+    );
+    const rule = matchComment(rules, messageText);
+
+    if (!rule) {
+      await this._commentAutomationRepository.updateProcessedComment(created.id, {});
+      return { matched: false };
+    }
+
+    const provider = this._integrationManager.getSocialIntegration(
+      integration.providerIdentifier
+    );
+
+    let error: string | null = null;
+    let privateReplySentAt: Date | undefined;
+    const replyText = pickReplyVariant(rule.privateReply);
+
+    if (replyText && provider.sendDirectMessage) {
+      try {
+        await provider.sendDirectMessage(integration, senderId, replyText);
+        privateReplySentAt = new Date();
+      } catch (err: any) {
+        error = `direct message reply failed: ${err?.message || err}`;
+      }
+    }
+
+    await this._commentAutomationRepository.updateProcessedComment(created.id, {
+      ruleId: rule.id,
+      privateReplySentAt,
+      error,
+    });
+
+    return { matched: true, ruleId: rule.id, error };
+  }
+
   verifySignature(rawBody: Buffer | undefined, signatureHeader: string | undefined) {
     return verifyMetaWebhookSignature(
       rawBody,
@@ -129,9 +232,9 @@ export class CommentAutomationService {
   }
 
   async handleWebhookPayload(payload: any) {
-    const events = extractCommentEvents(payload);
+    const commentEvents = extractCommentEvents(payload);
 
-    for (const event of events) {
+    for (const event of commentEvents) {
       const integration = await this._integrationService.findActiveIntegrationByInternalId(
         event.pageOrIgId,
         META_WEBHOOK_PROVIDER_IDENTIFIERS
@@ -143,6 +246,24 @@ export class CommentAutomationService {
         integration.id,
         event.providerCommentId,
         event.commentText
+      );
+    }
+
+    const directMessageEvents = extractDirectMessageEvents(payload);
+
+    for (const event of directMessageEvents) {
+      const integration = await this._integrationService.findActiveIntegrationByInternalId(
+        event.pageOrIgId,
+        META_WEBHOOK_PROVIDER_IDENTIFIERS
+      );
+
+      if (!integration) continue;
+
+      await this.triggerDirectMessageProcessing(
+        integration.id,
+        event.senderId,
+        event.messageId,
+        event.messageText
       );
     }
   }
@@ -163,6 +284,31 @@ export class CommentAutomationService {
           workflowId: `comment-automation-${integrationId}-${providerCommentId}`,
           taskQueue: 'main',
           args: [{ integrationId, providerCommentId, commentText }],
+        });
+    } catch (err) {
+      // WorkflowExecutionAlreadyStartedError on a webhook retry is expected, not a failure
+    }
+  }
+
+  // One-shot Temporal workflow per inbound direct message, same dedup
+  // reasoning as triggerProcessing but keyed by message id instead of
+  // comment id, and routed to the separate directMessageAutomationWorkflow
+  // (kept apart from commentAutomationWorkflow per the project's workflow
+  // versioning rule - two genuinely different event types, not a
+  // parameter tweak of the existing one).
+  async triggerDirectMessageProcessing(
+    integrationId: string,
+    senderId: string,
+    messageId: string,
+    messageText: string
+  ) {
+    try {
+      await this._temporalService.client
+        .getRawClient()
+        ?.workflow.start('directMessageAutomationWorkflow', {
+          workflowId: `direct-message-automation-${integrationId}-${messageId}`,
+          taskQueue: 'main',
+          args: [{ integrationId, senderId, messageId, messageText }],
         });
     } catch (err) {
       // WorkflowExecutionAlreadyStartedError on a webhook retry is expected, not a failure

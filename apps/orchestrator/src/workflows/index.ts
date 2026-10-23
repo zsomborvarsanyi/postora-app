@@ -10,6 +10,7 @@ export * from './post-workflows/post.workflow.v1.0.9';
 export * from './post-workflows/post.workflow.v1.1.0';
 export * from './autopost.workflow';
 export * from './comment.automation.workflow';
+export * from './direct.message.automation.workflow';
 export * from './digest.email.workflow';
 export * from './missing.post.workflow';
 export * from './send.email.workflow';

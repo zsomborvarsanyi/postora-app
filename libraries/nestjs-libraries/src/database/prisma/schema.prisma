@@ -620,8 +620,12 @@ model CommentAutomationRule {
   integrationId     String
   order             Int                @default(0)
   active            Boolean            @default(true)
+  triggerSource     RuleTriggerSource  @default(COMMENT)
   matchType         CommentMatchType   @default(CONTAINS)
   triggers          String
+  // JSON array of one or more reply variants, chosen at random when the
+  // rule fires - sending the same wording to every match at volume is a
+  // platform spam signal. For a DIRECT_MESSAGE rule, publicReply is unused.
   publicReply       String?
   privateReply      String?
   createdAt         DateTime           @default(now())
@@ -637,6 +641,11 @@ model CommentAutomationRule {
   @@index([integrationId, active, order])
 }
 
+// One row per already-handled Meta event - a commented-on comment id or a
+// direct-message id, both covered by providerCommentId's provider-side event
+// id. Dedup guard: the unique constraint rejects a second insert for the
+// same event, which a webhook retry (or, for DMs, Meta re-delivering) would
+// otherwise turn into a duplicate reply.
 model ProcessedComment {
   id                 String                 @id @default(uuid())
   integrationId      String
@@ -976,6 +985,12 @@ enum Period {
 enum CommentMatchType {
   CONTAINS
   REGEX
+  EXACT
+}
+
+enum RuleTriggerSource {
+  COMMENT
+  DIRECT_MESSAGE
 }
 
 enum Provider {

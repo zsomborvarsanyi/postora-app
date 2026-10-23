@@ -14,7 +14,7 @@ export function matchComment(
   rules: MatchableRule[],
   commentText: string
 ): MatchableRule | null {
-  const text = (commentText || '').toLowerCase();
+  const text = (commentText || '').toLowerCase().trim();
 
   for (const rule of rules) {
     if (!rule.active) continue;
@@ -32,8 +32,18 @@ export function matchComment(
     }
 
     try {
-      const phrases = JSON.parse(rule.triggers || '[]') as string[];
-      if (phrases.some((phrase) => phrase && text.includes(phrase.toLowerCase()))) {
+      const phrases = (JSON.parse(rule.triggers || '[]') as string[])
+        .filter(Boolean)
+        .map((phrase) => phrase.toLowerCase().trim());
+
+      // EXACT: the whole message has to be just the phrase (e.g. "a plain
+      // 'szia' and nothing else") - CONTAINS: the phrase appears anywhere.
+      const isMatch =
+        rule.matchType === 'EXACT'
+          ? phrases.includes(text)
+          : phrases.some((phrase) => phrase && text.includes(phrase));
+
+      if (isMatch) {
         return rule;
       }
     } catch {
@@ -42,4 +52,23 @@ export function matchComment(
   }
 
   return null;
+}
+
+// publicReply/privateReply are stored as a JSON array of variants (picked at
+// random when sent, so high-volume accounts don't post the identical string
+// over and over - a known spam signal). A plain, non-JSON string is treated
+// as a single variant, so hand-edited or pre-this-feature data still works.
+export function pickReplyVariant(stored: string | null | undefined): string | null {
+  if (!stored) return null;
+
+  let variants: string[];
+  try {
+    const parsed = JSON.parse(stored);
+    variants = Array.isArray(parsed) ? parsed.filter(Boolean) : [stored];
+  } catch {
+    variants = [stored];
+  }
+
+  if (!variants.length) return null;
+  return variants[Math.floor(Math.random() * variants.length)];
 }

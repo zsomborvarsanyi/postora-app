@@ -1061,6 +1061,32 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
     );
   }
 
+  // Reply to an inbound Messenger DM. Same endpoint as privateReply, but
+  // addressed by the sender's PSID instead of a comment id - a normal
+  // conversational message, not Meta's comment-linked "private reply",
+  // so the once-per-comment/7-day limits don't apply here.
+  async sendDirectMessage(
+    integration: Integration,
+    recipientId: string,
+    message: string
+  ): Promise<void> {
+    await this.fetch(
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${integration.internalId}/messages?access_token=${integration.token}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          recipient: { id: recipientId },
+          message: { text: message },
+          messaging_type: 'RESPONSE',
+        }),
+      },
+      'send direct message'
+    );
+  }
+
   async analytics(
     id: string,
     accessToken: string,

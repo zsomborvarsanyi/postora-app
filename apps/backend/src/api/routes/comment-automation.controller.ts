@@ -5,6 +5,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { CommentAutomationService } from '@gitroom/nestjs-libraries/database/prisma/comment-automation/comment-automation.service';
 import {
   CommentAutomationRuleDto,
+  CopyCommentAutomationRulesDto,
   ReorderCommentAutomationRulesDto,
 } from '@gitroom/nestjs-libraries/dtos/comment-automation/comment-automation.dto';
 
@@ -61,6 +62,19 @@ export class CommentAutomationController {
       org.id,
       integrationId,
       body.orderedIds
+    );
+  }
+
+  @Post('/:integrationId/rules/copy-to')
+  async copyRulesToOtherChannels(
+    @GetOrgFromRequest() org: Organization,
+    @Param('integrationId') integrationId: string,
+    @Body() body: CopyCommentAutomationRulesDto
+  ) {
+    return this._commentAutomationService.copyRulesToIntegrations(
+      org.id,
+      integrationId,
+      body.targetIntegrationIds
     );
   }
 }

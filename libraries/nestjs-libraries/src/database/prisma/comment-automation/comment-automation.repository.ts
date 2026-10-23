@@ -1,6 +1,7 @@
 import { PrismaRepository } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
 import { Injectable } from '@nestjs/common';
 import { CommentAutomationRuleDto } from '@gitroom/nestjs-libraries/dtos/comment-automation/comment-automation.dto';
+import { CommentAutomationRule, RuleTriggerSource } from '@prisma/client';
 
 @Injectable()
 export class CommentAutomationRepository {
@@ -20,10 +21,14 @@ export class CommentAutomationRepository {
     });
   }
 
-  getActiveRulesForIntegration(integrationId: string) {
+  getActiveRulesForIntegration(
+    integrationId: string,
+    triggerSource: RuleTriggerSource
+  ) {
     return this._rules.model.commentAutomationRule.findMany({
       where: {
         integrationId,
+        triggerSource,
         active: true,
         deletedAt: null,
       },
@@ -41,10 +46,13 @@ export class CommentAutomationRepository {
         where: { id: body.id, organizationId: orgId },
         data: {
           active: body.active,
+          triggerSource: body.triggerSource,
           matchType: body.matchType,
           triggers: JSON.stringify(body.triggers),
-          publicReply: body.publicReply || null,
-          privateReply: body.privateReply || null,
+          publicReply: body.publicReply ? JSON.stringify(body.publicReply) : null,
+          privateReply: body.privateReply
+            ? JSON.stringify(body.privateReply)
+            : null,
         },
       });
     }
@@ -59,11 +67,50 @@ export class CommentAutomationRepository {
         integrationId,
         order: total,
         active: body.active,
+        triggerSource: body.triggerSource,
         matchType: body.matchType,
         triggers: JSON.stringify(body.triggers),
-        publicReply: body.publicReply || null,
-        privateReply: body.privateReply || null,
+        publicReply: body.publicReply ? JSON.stringify(body.publicReply) : null,
+        privateReply: body.privateReply
+          ? JSON.stringify(body.privateReply)
+          : null,
       },
+    });
+  }
+
+  // Used by "copy rules to other channels" - takes the source integration's
+  // own rule rows as-is (triggers already stored as a JSON string, no
+  // reparsing needed) and appends copies to the target integration's list
+  // (existing rules on the target are untouched).
+  async copyRulesToIntegration(
+    orgId: string,
+    targetIntegrationId: string,
+    sourceRules: Pick<
+      CommentAutomationRule,
+      | 'active'
+      | 'triggerSource'
+      | 'matchType'
+      | 'triggers'
+      | 'publicReply'
+      | 'privateReply'
+    >[]
+  ) {
+    const total = await this._rules.model.commentAutomationRule.count({
+      where: { integrationId: targetIntegrationId, deletedAt: null },
+    });
+
+    await this._rules.model.commentAutomationRule.createMany({
+      data: sourceRules.map((rule, index) => ({
+        organizationId: orgId,
+        integrationId: targetIntegrationId,
+        order: total + index,
+        active: rule.active,
+        triggerSource: rule.triggerSource,
+        matchType: rule.matchType,
+        triggers: rule.triggers,
+        publicReply: rule.publicReply,
+        privateReply: rule.privateReply,
+      })),
     });
   }
 

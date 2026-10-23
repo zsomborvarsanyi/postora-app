@@ -31,4 +31,27 @@ export class CommentAutomationActivity {
       commentText
     );
   }
+
+  @ActivityMethod()
+  async processIncomingDirectMessage(
+    integrationId: string,
+    senderId: string,
+    messageId: string,
+    messageText: string
+  ) {
+    const integration = await this._integrationService.getIntegrationByIdOnly(
+      integrationId
+    );
+
+    if (!integration) {
+      return { skipped: true, reason: 'integration not found' };
+    }
+
+    return this._commentAutomationService.processIncomingDirectMessage(
+      integration,
+      senderId,
+      messageId,
+      messageText
+    );
+  }
 }

@@ -1,4 +1,8 @@
-import { matchComment, MatchableRule } from './comment-automation.match';
+import {
+  matchComment,
+  MatchableRule,
+  pickReplyVariant,
+} from './comment-automation.match';
 
 const rule = (overrides: Partial<MatchableRule>): MatchableRule => ({
   id: 'rule-id',
@@ -61,5 +65,45 @@ describe('matchComment', () => {
     const r = rule({ id: 'bad-json', triggers: 'not json' });
     expect(() => matchComment([r], 'anything')).not.toThrow();
     expect(matchComment([r], 'anything')).toBeNull();
+  });
+
+  it('matches an EXACT rule only when the whole message is the phrase', () => {
+    const r = rule({
+      id: 'exact-rule',
+      matchType: 'EXACT' as any,
+      triggers: JSON.stringify(['szia', 'hello']),
+    });
+    expect(matchComment([r], 'Szia')).toEqual(r);
+    expect(matchComment([r], '  hello  ')).toEqual(r);
+    expect(matchComment([r], 'szia, erdekel a termek')).toBeNull();
+    expect(matchComment([r], 'hello there')).toBeNull();
+  });
+});
+
+describe('pickReplyVariant', () => {
+  it('returns null for empty input', () => {
+    expect(pickReplyVariant(null)).toBeNull();
+    expect(pickReplyVariant(undefined)).toBeNull();
+    expect(pickReplyVariant('')).toBeNull();
+  });
+
+  it('treats a plain (non-JSON) string as a single variant', () => {
+    expect(pickReplyVariant('hello there')).toBe('hello there');
+  });
+
+  it('picks one of the stored JSON variants', () => {
+    const variants = ['a', 'b', 'c'];
+    for (let i = 0; i < 20; i++) {
+      expect(variants).toContain(pickReplyVariant(JSON.stringify(variants)));
+    }
+  });
+
+  it('eventually picks every variant across many calls', () => {
+    const variants = ['a', 'b'];
+    const seen = new Set<string | null>();
+    for (let i = 0; i < 50; i++) {
+      seen.add(pickReplyVariant(JSON.stringify(variants)));
+    }
+    expect(seen).toEqual(new Set(variants));
   });
 });

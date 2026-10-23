@@ -110,6 +110,12 @@ export interface ISocialMediaIntegration {
     commentId: string,
     message: string
   ): Promise<void>; // Sends a DM triggered from a comment (Meta "private reply"); only implemented where the platform supports it
+
+  sendDirectMessage?(
+    integration: Integration,
+    recipientId: string,
+    message: string
+  ): Promise<void>; // Replies to an inbound DM via the normal Send API - no comment id, none of privateReply's once-per-comment/7-day limits
 }
 
 export type PostResponse = {

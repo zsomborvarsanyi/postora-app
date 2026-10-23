@@ -2,6 +2,7 @@ import { createHmac } from 'crypto';
 import {
   verifyMetaWebhookSignature,
   extractCommentEvents,
+  extractDirectMessageEvents,
 } from './comment-automation.webhook';
 
 describe('verifyMetaWebhookSignature', () => {
@@ -104,5 +105,66 @@ describe('extractCommentEvents', () => {
     expect(extractCommentEvents(undefined)).toEqual([]);
     expect(extractCommentEvents({})).toEqual([]);
     expect(extractCommentEvents({ entry: 'not-an-array' })).toEqual([]);
+  });
+});
+
+describe('extractDirectMessageEvents', () => {
+  it('extracts an inbound direct message', () => {
+    const payload = {
+      entry: [
+        {
+          id: 'page-1',
+          messaging: [
+            {
+              sender: { id: 'user-1' },
+              message: { mid: 'm1', text: 'szia' },
+            },
+          ],
+        },
+      ],
+    };
+    expect(extractDirectMessageEvents(payload)).toEqual([
+      { pageOrIgId: 'page-1', senderId: 'user-1', messageId: 'm1', messageText: 'szia' },
+    ]);
+  });
+
+  it('ignores echoes of our own outgoing messages', () => {
+    const payload = {
+      entry: [
+        {
+          id: 'page-1',
+          messaging: [
+            {
+              sender: { id: 'page-1' },
+              message: { mid: 'm2', text: 'our reply', is_echo: true },
+            },
+          ],
+        },
+      ],
+    };
+    expect(extractDirectMessageEvents(payload)).toEqual([]);
+  });
+
+  it('ignores deleted messages', () => {
+    const payload = {
+      entry: [
+        {
+          id: 'page-1',
+          messaging: [
+            {
+              sender: { id: 'user-1' },
+              message: { mid: 'm3', is_deleted: true },
+            },
+          ],
+        },
+      ],
+    };
+    expect(extractDirectMessageEvents(payload)).toEqual([]);
+  });
+
+  it('handles a missing or malformed payload without throwing', () => {
+    expect(extractDirectMessageEvents(undefined)).toEqual([]);
+    expect(extractDirectMessageEvents({})).toEqual([]);
+    expect(extractDirectMessageEvents({ entry: 'not-an-array' })).toEqual([]);
   });
 });

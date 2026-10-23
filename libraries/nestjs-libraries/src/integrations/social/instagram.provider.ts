@@ -1078,20 +1078,29 @@ export class InstagramProvider
   // itself. Only one private reply is allowed per comment, and only within 7
   // days of the comment - Meta enforces both, this method just forwards the
   // request.
+  // The Page id backing an Instagram integration is never persisted on the
+  // row (only the IG Business Account id and the compound token are) -
+  // resolved on the fly instead: a Page access token's own /me call returns
+  // the Page itself. Shared by privateReply and sendDirectMessage, both of
+  // which need the Page id, not the IG Business Account id.
+  private async resolvePageId(pageAccessToken: string): Promise<string> {
+    const { id } = await (
+      await this.fetch(
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me?access_token=${pageAccessToken}`,
+        {},
+        'resolve page id'
+      )
+    ).json();
+    return id;
+  }
+
   async privateReply(
     integration: Integration,
     commentId: string,
     message: string
   ): Promise<void> {
     const [accessToken] = integration.token.split('___');
-
-    const { id: pageId } = await (
-      await this.fetch(
-        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me?access_token=${accessToken}`,
-        {},
-        'resolve page id for private reply'
-      )
-    ).json();
+    const pageId = await this.resolvePageId(accessToken);
 
     await this.fetch(
       `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${pageId}/messages?access_token=${accessToken}`,
@@ -1106,6 +1115,34 @@ export class InstagramProvider
         }),
       },
       'private reply'
+    );
+  }
+
+  // Reply to an inbound Instagram DM. Same mechanics as privateReply, but
+  // addressed by the sender's IGSID instead of a comment id - a normal
+  // conversational message, not Meta's comment-linked "private reply".
+  async sendDirectMessage(
+    integration: Integration,
+    recipientId: string,
+    message: string
+  ): Promise<void> {
+    const [accessToken] = integration.token.split('___');
+    const pageId = await this.resolvePageId(accessToken);
+
+    await this.fetch(
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${pageId}/messages?access_token=${accessToken}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          recipient: { id: recipientId },
+          message: { text: message },
+          messaging_type: 'RESPONSE',
+        }),
+      },
+      'send direct message'
     );
   }
 

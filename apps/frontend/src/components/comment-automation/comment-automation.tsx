@@ -145,7 +145,12 @@ export const CommentAutomation = () => {
         </div>
       </div>
       <div className="bg-newBgColorInner flex-1 flex-col flex p-[20px] gap-[12px]">
-        <CommentAutomationRules integrationId={currentIntegration.id} />
+        <CommentAutomationRules
+          integrationId={currentIntegration.id}
+          siblingIntegrations={sortedIntegrations.filter(
+            (integration: any) => integration.id !== currentIntegration.id
+          )}
+        />
       </div>
     </>
   );
