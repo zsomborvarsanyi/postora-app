@@ -9,6 +9,7 @@ import {
   matchComment,
   MatchableRule,
   pickReplyVariant,
+  applyNamePlaceholder,
 } from '@gitroom/nestjs-libraries/database/prisma/comment-automation/comment-automation.match';
 import {
   verifyMetaWebhookSignature,
@@ -135,8 +136,14 @@ export class CommentAutomationService {
     let publicReplySentAt: Date | undefined;
     let privateReplySentAt: Date | undefined;
 
-    const publicReplyText = pickReplyVariant(rule.publicReply);
-    const privateReplyText = pickReplyVariant(rule.privateReply);
+    // A real commenter name isn't threaded through the Temporal workflow
+    // yet (no rule needs it today - adding it later means a V3 workflow,
+    // per this project's rule against changing an already-shipped one's
+    // activity parameters). applyNamePlaceholder(..., undefined) still runs
+    // so a stray {name} in a template degrades to "no name" instead of
+    // leaking the literal placeholder text into a sent reply.
+    const publicReplyText = applyNamePlaceholder(pickReplyVariant(rule.publicReply) || '', undefined) || null;
+    const privateReplyText = applyNamePlaceholder(pickReplyVariant(rule.privateReply) || '', undefined) || null;
 
     if (publicReplyText) {
       try {
@@ -212,7 +219,10 @@ export class CommentAutomationService {
 
     let error: string | null = null;
     let privateReplySentAt: Date | undefined;
-    const replyText = pickReplyVariant(rule.privateReply);
+    // Messenger/Instagram DM webhook events never carry a sender name (see
+    // extractDirectMessageEvents) - always undefined here, same safety net
+    // as the comment path above.
+    const replyText = applyNamePlaceholder(pickReplyVariant(rule.privateReply) || '', undefined) || null;
 
     if (replyText && provider.sendDirectMessage) {
       try {

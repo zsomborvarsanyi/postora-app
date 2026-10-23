@@ -31,6 +31,7 @@ export type ExtractedCommentEvent = {
   providerCommentId: string;
   providerPostId?: string;
   commentText: string;
+  commenterName?: string;
 };
 
 // Only extracts what's needed to find the integration and the comment text -
@@ -64,6 +65,12 @@ export function extractCommentEvents(payload: any): ExtractedCommentEvent[] {
           change.value?.media_id ||
           undefined,
         commentText: change.value?.message || change.value?.text || '',
+        // Facebook's comment payload carries the commenter's real name
+        // (from.name). Instagram's typically only exposes the handle
+        // (from.username), not a real name, for privacy reasons - used as a
+        // fallback rather than guaranteed. Left undefined if neither is
+        // present, so {name} in a reply template can be dropped cleanly.
+        commenterName: change.value?.from?.name || change.value?.from?.username || undefined,
       }))
       .filter((event: any) => !!event.providerCommentId);
   });

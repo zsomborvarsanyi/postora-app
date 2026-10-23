@@ -72,3 +72,16 @@ export function pickReplyVariant(stored: string | null | undefined): string | nu
   if (!variants.length) return null;
   return variants[Math.floor(Math.random() * variants.length)];
 }
+
+// Lets a reply template write "Szia {name}!" and have it read naturally
+// either way: "Szia Zsombor!" when a name is known, or "Szia!" when it
+// isn't (the name is genuinely not always available - e.g. Instagram
+// direct messages don't carry one at all). The leading whitespace is
+// consumed along with the placeholder so dropping it never leaves a
+// double space or an orphaned space before the punctuation.
+export function applyNamePlaceholder(
+  text: string,
+  name: string | null | undefined
+): string {
+  return text.replace(/\s*\{name\}/g, name ? ` ${name}` : '');
+}

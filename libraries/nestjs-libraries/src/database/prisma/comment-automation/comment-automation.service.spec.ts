@@ -2,6 +2,7 @@ import {
   matchComment,
   MatchableRule,
   pickReplyVariant,
+  applyNamePlaceholder,
 } from './comment-automation.match';
 
 const rule = (overrides: Partial<MatchableRule>): MatchableRule => ({
@@ -105,5 +106,27 @@ describe('pickReplyVariant', () => {
       seen.add(pickReplyVariant(JSON.stringify(variants)));
     }
     expect(seen).toEqual(new Set(variants));
+  });
+});
+
+describe('applyNamePlaceholder', () => {
+  it('substitutes a known name with a leading space', () => {
+    expect(applyNamePlaceholder('Szia {name}!', 'Zsombor')).toBe('Szia Zsombor!');
+  });
+
+  it('drops the placeholder and its leading space when the name is unknown', () => {
+    expect(applyNamePlaceholder('Szia {name}!', undefined)).toBe('Szia!');
+    expect(applyNamePlaceholder('Szia {name}!', null)).toBe('Szia!');
+    expect(applyNamePlaceholder('Szia {name}!', '')).toBe('Szia!');
+  });
+
+  it('handles multiple occurrences', () => {
+    expect(applyNamePlaceholder('{name}, szia {name}!', 'Zsombor')).toBe(
+      ' Zsombor, szia Zsombor!'
+    );
+  });
+
+  it('leaves text with no placeholder untouched', () => {
+    expect(applyNamePlaceholder('Szia!', 'Zsombor')).toBe('Szia!');
   });
 });
