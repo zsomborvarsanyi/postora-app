@@ -29,6 +29,7 @@ export function verifyMetaWebhookSignature(
 export type ExtractedCommentEvent = {
   pageOrIgId: string;
   providerCommentId: string;
+  providerPostId?: string;
   commentText: string;
 };
 
@@ -51,6 +52,17 @@ export function extractCommentEvents(payload: any): ExtractedCommentEvent[] {
         // in production. Both are no-ops for non-comment feed events (new
         // post, like, ...), which carry neither and get filtered out below.
         providerCommentId: change.value?.comment_id || change.value?.id,
+        // Which post the comment belongs to, used for post-specific rules.
+        // Facebook's 'feed' field carries post_id directly; Instagram's
+        // 'comments' field has been observed nesting it under media (either
+        // media.id or media_id) - accept all three rather than guessing
+        // wrong once in production. Left undefined if none are present, so
+        // only channel-wide rules apply to that comment.
+        providerPostId:
+          change.value?.post_id ||
+          change.value?.media?.id ||
+          change.value?.media_id ||
+          undefined,
         commentText: change.value?.message || change.value?.text || '',
       }))
       .filter((event: any) => !!event.providerCommentId);

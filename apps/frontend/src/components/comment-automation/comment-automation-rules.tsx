@@ -8,7 +8,8 @@ import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import { Textarea } from '@gitroom/react/form/textarea';
 import { Checkbox } from '@gitroom/react/form/checkbox';
 import { Select } from '@gitroom/react/form/select';
-import { FormProvider, useForm } from 'react-hook-form';
+import { FormProvider, useForm, useFormContext } from 'react-hook-form';
+import { Input } from '@gitroom/react/form/input';
 import { boolean, object, string } from 'yup';
 import { yupResolver } from '@hookform/resolvers/yup';
 import { useToaster } from '@gitroom/react/toaster/toaster';
@@ -47,11 +48,32 @@ const parseVariants = (stored: string | null | undefined): string[] => {
 const details = object().shape({
   active: boolean(),
   triggerSource: string().required(),
+  providerPostId: string(),
   matchType: string().required(),
   triggersText: string().required(),
   publicReplyText: string(),
   privateReplyText: string(),
 });
+
+// Same key/label pairs as LON's includes/link_utm.php LINK_UTM_SOURCES /
+// LINK_UTM_MEDIUMS - hardcoded here rather than fetched, since they're a
+// small, rarely-changing fixed list (unlike landing pages/products/sponsors,
+// which come live from /comment-automation/lon/options).
+const LON_SOURCES = [
+  { value: 'facebook', label: 'Facebook' },
+  { value: 'tiktok', label: 'TikTok' },
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'email', label: 'E-mail sorozat' },
+];
+const LON_MEDIUMS = [
+  { value: 'komment', label: 'Komment' },
+  { value: 'poszt', label: 'Poszt' },
+  { value: 'bio', label: 'Bio-link' },
+  { value: 'story', label: 'Story' },
+  { value: 'hub', label: 'Hub' },
+  { value: 'uzleti_megkereses', label: 'Üzleti megkeresés' },
+  { value: 'privat_uzenet', label: 'Privát üzenet' },
+];
 
 export const CommentAutomationRules: FC<{
   integrationId: string;
@@ -250,6 +272,7 @@ export const AddOrEditRule: FC<{
     values: {
       active: data ? data.active : true,
       triggerSource: data?.triggerSource || 'COMMENT',
+      providerPostId: data?.providerPostId || '',
       matchType: data?.matchType || 'CONTAINS',
       triggersText: existingTriggers,
       publicReplyText: joinVariants(parseVariants(data?.publicReply)),
@@ -259,6 +282,14 @@ export const AddOrEditRule: FC<{
 
   const triggerSource = form.watch('triggerSource');
   const matchType = form.watch('matchType');
+
+  const loadPosts = useCallback(async () => {
+    return (await fetch(`/comment-automation/${integrationId}/posts`)).json();
+  }, [integrationId]);
+  const { data: posts } = useSWR(
+    `comment-automation-posts-${integrationId}`,
+    loadPosts
+  );
 
   const callBack = useCallback(
     async (values: any) => {
@@ -279,6 +310,7 @@ export const AddOrEditRule: FC<{
           body: JSON.stringify({
             active: values.active,
             triggerSource: values.triggerSource,
+            providerPostId: values.providerPostId || undefined,
             matchType: values.matchType,
             triggers,
             publicReply:
@@ -321,6 +353,25 @@ export const AddOrEditRule: FC<{
                 {t('trigger_direct_message', 'An inbound direct message')}
               </option>
             </Select>
+            {triggerSource === 'COMMENT' && (
+              <Select
+                name="providerPostId"
+                label={t(
+                  'scope_to_post',
+                  'Scope to one specific post (optional - a post-specific rule wins over a whole-channel rule)'
+                )}
+              >
+                <option value="">
+                  {t('whole_channel', 'Whole channel (default)')}
+                </option>
+                {(posts || []).map((post: any) => (
+                  <option key={post.releaseId} value={post.releaseId}>
+                    {new Date(post.publishDate).toLocaleDateString()} -{' '}
+                    {(post.content || '').replace(/<[^>]+>/g, '').slice(0, 60)}
+                  </option>
+                ))}
+              </Select>
+            )}
             <Select
               name="matchType"
               label={t('match_type_label', 'How the triggers below are matched')}
@@ -370,6 +421,7 @@ export const AddOrEditRule: FC<{
               }
             />
             <Checkbox name="active" label={t('active', 'Active')} />
+            <LonLinkPanel />
             <div className="flex gap-[10px]">
               <Button type="submit" disabled={!form.formState.isValid}>
                 {t('save', 'Save')}
@@ -379,6 +431,194 @@ export const AddOrEditRule: FC<{
         </div>
       </form>
     </FormProvider>
+  );
+};
+
+// Authoring-time convenience only: fetches live landing/product/sponsor
+// options and, on request, asks LON to mint a real, trackable short link -
+// then just appends it as plain text to the private-reply field. Nothing
+// here is ever called again once the rule is saved; the live comment-reply
+// pipeline never talks to LON.
+const LonLinkPanel: FC = () => {
+  const fetch = useFetch();
+  const t = useT();
+  const toast = useToaster();
+  const form = useFormContext();
+  const [open, setOpen] = useState(false);
+  const [landingSlug, setLandingSlug] = useState('');
+  const [productSku, setProductSku] = useState('');
+  const [distributorId, setDistributorId] = useState('');
+  const [source, setSource] = useState('instagram');
+  const [medium, setMedium] = useState('komment');
+  const [content, setContent] = useState('');
+  const [loading, setLoading] = useState<'landing' | 'purchase' | false>(false);
+
+  const loadOptions = useCallback(async () => {
+    return (await fetch('/comment-automation/lon/options')).json();
+  }, []);
+  const { data: options } = useSWR(
+    open ? 'comment-automation-lon-options' : null,
+    loadOptions
+  );
+
+  const appendLink = useCallback(
+    (shortUrl: string) => {
+      const current = form.getValues('privateReplyText') || '';
+      form.setValue(
+        'privateReplyText',
+        current ? `${current}\n${shortUrl}` : shortUrl,
+        { shouldValidate: true }
+      );
+    },
+    [form]
+  );
+
+  const fetchLink = useCallback(
+    (type: 'landing' | 'purchase') => async () => {
+      setLoading(type);
+      try {
+        const body: any = { type, source, medium, content: content || undefined };
+        if (type === 'landing') {
+          body.landingSlug = landingSlug;
+        } else {
+          body.productSku = productSku;
+          body.distributorId = distributorId ? Number(distributorId) : undefined;
+        }
+
+        const res = await fetch('/comment-automation/lon/generate-link', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          throw new Error('lon_link_request_failed');
+        }
+        const { shortUrl } = await res.json();
+        appendLink(shortUrl);
+        toast.show(t('lon_link_added', 'Link added to the private reply'), 'success');
+      } catch {
+        toast.show(
+          t('lon_link_failed', 'Could not get a link from LON, check the selections'),
+          'warning'
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [source, medium, content, landingSlug, productSku, distributorId, appendLink]
+  );
+
+  if (!open) {
+    return (
+      <Button type="button" secondary={true} onClick={() => setOpen(true)}>
+        {t('generate_a_lon_link', 'Generate a LON link')}
+      </Button>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-[12px] border-fifth border rounded-[4px] p-[16px]">
+      <div className="text-[14px]">
+        {t(
+          'lon_link_description',
+          'Picks live from LON. The resulting link is appended to the private reply above as plain text - nothing here runs again once this rule is saved.'
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-[10px]">
+        <Select
+          name="lon-source"
+          disableForm={true}
+          label={t('source', 'Source')}
+          value={source}
+          onChange={(e) => setSource(e.target.value)}
+        >
+          {LON_SOURCES.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+        <Select
+          name="lon-medium"
+          disableForm={true}
+          label={t('medium', 'Medium')}
+          value={medium}
+          onChange={(e) => setMedium(e.target.value)}
+        >
+          {LON_MEDIUMS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <Input
+        label={t('content_slug', 'Content / slug (free text, e.g. a date + note)')}
+        name="lon-content"
+        disableForm={true}
+        value={content}
+        onChange={(e: any) => setContent(e.target.value)}
+      />
+      <div className="grid grid-cols-2 gap-[10px] items-end">
+        <Select
+          name="lon-landing"
+          disableForm={true}
+          label={t('landing_page', 'Landing page')}
+          value={landingSlug}
+          onChange={(e) => setLandingSlug(e.target.value)}
+        >
+          <option value="">{t('choose', 'Choose...')}</option>
+          {(options?.landingPages || []).map((p: any) => (
+            <option key={p.slug} value={p.slug}>
+              {p.label}
+            </option>
+          ))}
+        </Select>
+        <Button
+          type="button"
+          onClick={fetchLink('landing')}
+          disabled={!landingSlug || loading !== false}
+        >
+          {t('fetch_landing_link', 'Fetch landing link')}
+        </Button>
+      </div>
+      <div className="grid grid-cols-2 gap-[10px]">
+        <Select
+          name="lon-product"
+          disableForm={true}
+          label={t('product', 'Product')}
+          value={productSku}
+          onChange={(e) => setProductSku(e.target.value)}
+        >
+          <option value="">{t('choose', 'Choose...')}</option>
+          {(options?.products || []).map((p: any) => (
+            <option key={p.sku} value={p.sku}>
+              {p.brand ? `${p.brand} - ${p.name}` : p.name}
+            </option>
+          ))}
+        </Select>
+        <Select
+          name="lon-sponsor"
+          disableForm={true}
+          label={t('sponsor', 'Sponsor')}
+          value={distributorId}
+          onChange={(e) => setDistributorId(e.target.value)}
+        >
+          <option value="">{t('choose', 'Choose...')}</option>
+          {(options?.sponsors || []).map((s: any) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <Button
+        type="button"
+        onClick={fetchLink('purchase')}
+        disabled={!productSku || !distributorId || loading !== false}
+      >
+        {t('fetch_purchase_link', 'Fetch purchase link')}
+      </Button>
+    </div>
   );
 };
 

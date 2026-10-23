@@ -27,6 +27,7 @@ import { WebhooksRepository } from '@gitroom/nestjs-libraries/database/prisma/we
 import { WebhooksService } from '@gitroom/nestjs-libraries/database/prisma/webhooks/webhooks.service';
 import { CommentAutomationRepository } from '@gitroom/nestjs-libraries/database/prisma/comment-automation/comment-automation.repository';
 import { CommentAutomationService } from '@gitroom/nestjs-libraries/database/prisma/comment-automation/comment-automation.service';
+import { LonLinkService } from '@gitroom/nestjs-libraries/database/prisma/comment-automation/lon-link.service';
 import { SignatureRepository } from '@gitroom/nestjs-libraries/database/prisma/signatures/signature.repository';
 import { SignatureService } from '@gitroom/nestjs-libraries/database/prisma/signatures/signature.service';
 import { AutopostRepository } from '@gitroom/nestjs-libraries/database/prisma/autopost/autopost.repository';
@@ -67,6 +68,7 @@ import { AdminStatsService } from '@gitroom/nestjs-libraries/database/prisma/adm
     WebhooksService,
     CommentAutomationRepository,
     CommentAutomationService,
+    LonLinkService,
     IntegrationService,
     IntegrationRepository,
     PostsService,

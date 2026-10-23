@@ -38,6 +38,13 @@ export class CommentAutomationService {
     return this._commentAutomationRepository.getRules(orgId, integrationId);
   }
 
+  getIntegrationPosts(orgId: string, integrationId: string) {
+    return this._commentAutomationRepository.getIntegrationPosts(
+      orgId,
+      integrationId
+    );
+  }
+
   upsertRule(orgId: string, integrationId: string, body: CommentAutomationRuleDto) {
     return this._commentAutomationRepository.upsertRule(orgId, integrationId, body);
   }
@@ -96,7 +103,8 @@ export class CommentAutomationService {
   async processIncomingComment(
     integration: Integration,
     providerCommentId: string,
-    commentText: string
+    commentText: string,
+    providerPostId?: string
   ) {
     const created = await this._commentAutomationRepository.createProcessedComment({
       integrationId: integration.id,
@@ -109,7 +117,8 @@ export class CommentAutomationService {
 
     const rules = await this._commentAutomationRepository.getActiveRulesForIntegration(
       integration.id,
-      'COMMENT'
+      'COMMENT',
+      providerPostId
     );
     const rule = matchComment(rules, commentText);
 
@@ -245,7 +254,8 @@ export class CommentAutomationService {
       await this.triggerProcessing(
         integration.id,
         event.providerCommentId,
-        event.commentText
+        event.commentText,
+        event.providerPostId
       );
     }
 
@@ -272,18 +282,24 @@ export class CommentAutomationService {
   // the comment id, so a duplicate webhook delivery racing to start the same
   // workflow is rejected by Temporal itself - a second, free dedup layer on
   // top of the ProcessedComment unique constraint.
+  //
+  // Starts commentAutomationWorkflowV2, not the original commentAutomationWorkflow:
+  // post-scoped rules needed one more argument (providerPostId), and per this
+  // project's workflow rule, an already-shipped workflow's activity
+  // parameters can never change - a new version instead of touching v1.
   async triggerProcessing(
     integrationId: string,
     providerCommentId: string,
-    commentText: string
+    commentText: string,
+    providerPostId?: string
   ) {
     try {
       await this._temporalService.client
         .getRawClient()
-        ?.workflow.start('commentAutomationWorkflow', {
+        ?.workflow.start('commentAutomationWorkflowV2', {
           workflowId: `comment-automation-${integrationId}-${providerCommentId}`,
           taskQueue: 'main',
-          args: [{ integrationId, providerCommentId, commentText }],
+          args: [{ integrationId, providerCommentId, commentText, providerPostId }],
         });
     } catch (err) {
       // WorkflowExecutionAlreadyStartedError on a webhook retry is expected, not a failure

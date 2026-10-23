@@ -3,16 +3,46 @@ import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.reque
 import { Organization } from '@prisma/client';
 import { ApiTags } from '@nestjs/swagger';
 import { CommentAutomationService } from '@gitroom/nestjs-libraries/database/prisma/comment-automation/comment-automation.service';
+import { LonLinkService } from '@gitroom/nestjs-libraries/database/prisma/comment-automation/lon-link.service';
 import {
   CommentAutomationRuleDto,
   CopyCommentAutomationRulesDto,
+  GenerateLonLinkDto,
   ReorderCommentAutomationRulesDto,
 } from '@gitroom/nestjs-libraries/dtos/comment-automation/comment-automation.dto';
 
 @ApiTags('Comment Automation')
 @Controller('/comment-automation')
 export class CommentAutomationController {
-  constructor(private _commentAutomationService: CommentAutomationService) {}
+  constructor(
+    private _commentAutomationService: CommentAutomationService,
+    private _lonLinkService: LonLinkService
+  ) {}
+
+  // LON-specific authoring-time helper, not org-gated per the user's
+  // explicit instruction - harmless if unused by other orgs, and avoids
+  // building unnecessary multi-tenant plumbing for a single-customer need.
+  @Get('/lon/options')
+  async getLonLinkOptions() {
+    return this._lonLinkService.getOptions();
+  }
+
+  @Post('/lon/generate-link')
+  async generateLonLink(@Body() body: GenerateLonLinkDto) {
+    const shortUrl = await this._lonLinkService.generateLink(body);
+    return { shortUrl };
+  }
+
+  @Get('/:integrationId/posts')
+  async getIntegrationPosts(
+    @GetOrgFromRequest() org: Organization,
+    @Param('integrationId') integrationId: string
+  ) {
+    return this._commentAutomationService.getIntegrationPosts(
+      org.id,
+      integrationId
+    );
+  }
 
   @Get('/:integrationId/rules')
   async getRules(

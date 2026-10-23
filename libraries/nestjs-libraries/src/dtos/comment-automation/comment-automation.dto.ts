@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsDefined,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -31,6 +32,12 @@ export class CommentAutomationRuleDto {
   @IsEnum(RuleTriggerSource)
   @IsDefined()
   triggerSource: RuleTriggerSource;
+
+  // Scopes the rule to one specific post's comments instead of the whole
+  // channel. Omit for the default, channel-wide behavior.
+  @IsString()
+  @IsOptional()
+  providerPostId?: string;
 
   // For CONTAINS: the comment/message contains any of these phrases.
   // For EXACT: the whole comment/message has to be just one of these
@@ -78,4 +85,44 @@ export class CopyCommentAutomationRulesDto {
   @ArrayMaxSize(50)
   @IsDefined()
   targetIntegrationIds: string[];
+}
+
+// Mirrors LON's backend/postora-generate-link.php input shape exactly -
+// see GenerateLonLinkParams in lon-link.service.ts.
+export class GenerateLonLinkDto {
+  @IsIn(['landing', 'purchase'])
+  @IsDefined()
+  type: 'landing' | 'purchase';
+
+  @IsString()
+  @IsOptional()
+  landingSlug?: string;
+
+  @IsString()
+  @IsOptional()
+  productSku?: string;
+
+  @IsInt()
+  @IsOptional()
+  distributorId?: number;
+
+  @IsString()
+  @IsOptional()
+  source?: string;
+
+  @IsString()
+  @IsOptional()
+  medium?: string;
+
+  @IsString()
+  @IsOptional()
+  content?: string;
+
+  @IsString()
+  @IsOptional()
+  campaign?: string;
+
+  @IsString()
+  @IsOptional()
+  label?: string;
 }

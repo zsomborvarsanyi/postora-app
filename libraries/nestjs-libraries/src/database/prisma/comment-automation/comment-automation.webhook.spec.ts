@@ -82,6 +82,98 @@ describe('extractCommentEvents', () => {
     ]);
   });
 
+  it('extracts the post id from a Facebook feed comment event', () => {
+    const payload = {
+      entry: [
+        {
+          id: 'page-1',
+          changes: [
+            {
+              field: 'feed',
+              value: {
+                item: 'comment',
+                comment_id: 'c1',
+                post_id: 'page-1_post1',
+                message: 'hi',
+              },
+            },
+          ],
+        },
+      ],
+    };
+    expect(extractCommentEvents(payload)).toEqual([
+      {
+        pageOrIgId: 'page-1',
+        providerCommentId: 'c1',
+        providerPostId: 'page-1_post1',
+        commentText: 'hi',
+      },
+    ]);
+  });
+
+  it('extracts the post id from a nested media.id on an Instagram comment event', () => {
+    const payload = {
+      entry: [
+        {
+          id: 'ig-1',
+          changes: [
+            {
+              field: 'comments',
+              value: { id: 'c2', media: { id: 'media1' }, text: 'nice post' },
+            },
+          ],
+        },
+      ],
+    };
+    expect(extractCommentEvents(payload)).toEqual([
+      {
+        pageOrIgId: 'ig-1',
+        providerCommentId: 'c2',
+        providerPostId: 'media1',
+        commentText: 'nice post',
+      },
+    ]);
+  });
+
+  it('extracts the post id from a flat media_id on an Instagram comment event', () => {
+    const payload = {
+      entry: [
+        {
+          id: 'ig-1',
+          changes: [
+            {
+              field: 'comments',
+              value: { id: 'c3', media_id: 'media2', text: 'nice post' },
+            },
+          ],
+        },
+      ],
+    };
+    expect(extractCommentEvents(payload)).toEqual([
+      {
+        pageOrIgId: 'ig-1',
+        providerCommentId: 'c3',
+        providerPostId: 'media2',
+        commentText: 'nice post',
+      },
+    ]);
+  });
+
+  it('leaves providerPostId undefined when none of post_id/media.id/media_id are present', () => {
+    const payload = {
+      entry: [
+        {
+          id: 'ig-1',
+          changes: [
+            { field: 'comments', value: { id: 'c4', text: 'no post id here' } },
+          ],
+        },
+      ],
+    };
+    const [event] = extractCommentEvents(payload);
+    expect(event.providerPostId).toBeUndefined();
+  });
+
   it('ignores feed events that are not comments (e.g. a new post)', () => {
     const payload = {
       entry: [

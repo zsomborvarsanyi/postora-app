@@ -621,6 +621,10 @@ model CommentAutomationRule {
   order             Int                @default(0)
   active            Boolean            @default(true)
   triggerSource     RuleTriggerSource  @default(COMMENT)
+  // Null: applies to every comment on the whole channel (default, as
+  // before). Set: applies only to comments on this one post - a
+  // post-specific rule wins over a channel-wide rule for the same channel.
+  providerPostId    String?
   matchType         CommentMatchType   @default(CONTAINS)
   triggers          String
   // JSON array of one or more reply variants, chosen at random when the
@@ -639,6 +643,7 @@ model CommentAutomationRule {
   @@index([integrationId])
   @@index([deletedAt])
   @@index([integrationId, active, order])
+  @@index([integrationId, providerPostId, active, order])
 }
 
 // One row per already-handled Meta event - a commented-on comment id or a

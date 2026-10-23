@@ -32,6 +32,34 @@ export class CommentAutomationActivity {
     );
   }
 
+  // v2: adds providerPostId for post-scoped rules. Kept as a separate
+  // method/activity rather than changing processIncomingComment above -
+  // this project's workflow rule forbids changing an already-shipped
+  // activity's parameters, since that breaks replay determinism for any
+  // still-in-flight execution.
+  @ActivityMethod()
+  async processIncomingCommentV2(
+    integrationId: string,
+    providerCommentId: string,
+    commentText: string,
+    providerPostId?: string
+  ) {
+    const integration = await this._integrationService.getIntegrationByIdOnly(
+      integrationId
+    );
+
+    if (!integration) {
+      return { skipped: true, reason: 'integration not found' };
+    }
+
+    return this._commentAutomationService.processIncomingComment(
+      integration,
+      providerCommentId,
+      commentText,
+      providerPostId
+    );
+  }
+
   @ActivityMethod()
   async processIncomingDirectMessage(
     integrationId: string,

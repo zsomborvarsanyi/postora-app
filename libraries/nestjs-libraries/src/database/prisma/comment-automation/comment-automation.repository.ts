@@ -7,8 +7,35 @@ import { CommentAutomationRule, RuleTriggerSource } from '@prisma/client';
 export class CommentAutomationRepository {
   constructor(
     private _rules: PrismaRepository<'commentAutomationRule'>,
-    private _processedComments: PrismaRepository<'processedComment'>
+    private _processedComments: PrismaRepository<'processedComment'>,
+    private _posts: PrismaRepository<'post'>
   ) {}
+
+  // Feeds the rule editor's "scope to one specific post" picker. Purpose-
+  // built here rather than reusing the general-purpose posts list/calendar
+  // endpoints (which paginate by date range or by page, not by integration,
+  // and this only ever needs a short, most-recent-first list for one
+  // channel) - releaseId is the platform's own post id, the same value the
+  // Meta webhook sends as providerPostId, which is what a rule is actually
+  // matched against.
+  getIntegrationPosts(orgId: string, integrationId: string) {
+    return this._posts.model.post.findMany({
+      where: {
+        organizationId: orgId,
+        integrationId,
+        deletedAt: null,
+        releaseId: { not: null },
+      },
+      select: {
+        id: true,
+        releaseId: true,
+        content: true,
+        publishDate: true,
+      },
+      orderBy: { publishDate: 'desc' },
+      take: 50,
+    });
+  }
 
   getRules(orgId: string, integrationId: string) {
     return this._rules.model.commentAutomationRule.findMany({
@@ -21,19 +48,40 @@ export class CommentAutomationRepository {
     });
   }
 
-  getActiveRulesForIntegration(
+  // A post-specific rule (providerPostId set, matching the comment's own
+  // post) always wins over a channel-wide rule (providerPostId null) for
+  // the same channel - two queries, concatenated in that precedence,
+  // because matchComment() just picks the first match in array order.
+  async getActiveRulesForIntegration(
     integrationId: string,
-    triggerSource: RuleTriggerSource
+    triggerSource: RuleTriggerSource,
+    providerPostId?: string
   ) {
-    return this._rules.model.commentAutomationRule.findMany({
+    const postSpecific = providerPostId
+      ? await this._rules.model.commentAutomationRule.findMany({
+          where: {
+            integrationId,
+            triggerSource,
+            providerPostId,
+            active: true,
+            deletedAt: null,
+          },
+          orderBy: { order: 'asc' },
+        })
+      : [];
+
+    const channelWide = await this._rules.model.commentAutomationRule.findMany({
       where: {
         integrationId,
         triggerSource,
+        providerPostId: null,
         active: true,
         deletedAt: null,
       },
       orderBy: { order: 'asc' },
     });
+
+    return [...postSpecific, ...channelWide];
   }
 
   async upsertRule(
@@ -47,6 +95,7 @@ export class CommentAutomationRepository {
         data: {
           active: body.active,
           triggerSource: body.triggerSource,
+          providerPostId: body.providerPostId || null,
           matchType: body.matchType,
           triggers: JSON.stringify(body.triggers),
           publicReply: body.publicReply ? JSON.stringify(body.publicReply) : null,
@@ -68,6 +117,7 @@ export class CommentAutomationRepository {
         order: total,
         active: body.active,
         triggerSource: body.triggerSource,
+        providerPostId: body.providerPostId || null,
         matchType: body.matchType,
         triggers: JSON.stringify(body.triggers),
         publicReply: body.publicReply ? JSON.stringify(body.publicReply) : null,
@@ -81,7 +131,11 @@ export class CommentAutomationRepository {
   // Used by "copy rules to other channels" - takes the source integration's
   // own rule rows as-is (triggers already stored as a JSON string, no
   // reparsing needed) and appends copies to the target integration's list
-  // (existing rules on the target are untouched).
+  // (existing rules on the target are untouched). providerPostId is
+  // deliberately NOT in the Pick/mapping below: a source post id only
+  // exists on the source channel, so every copy lands channel-wide
+  // (providerPostId null) on the target rather than silently referencing a
+  // post that may not even exist there.
   async copyRulesToIntegration(
     orgId: string,
     targetIntegrationId: string,
