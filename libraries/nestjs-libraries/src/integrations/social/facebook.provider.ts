@@ -41,6 +41,14 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
    * amit ma kezzel csinalunk. Ket korlatja van, es ezt a hivo oldalnak tudnia
    * kell: egy kommentre CSAK EGYSZER lehet privat valaszt kuldeni, es csak
    * korlatozott ideig a komment utan.
+   *
+   * A pages_manage_metadata is UJ (2026-10-23, eles hibabol derult ki): e
+   * nelkul a POST /{page-id}/subscribed_apps (a subscribePageToWebhook()
+   * hivasa lejjebb) nemán elbukik "Requires pages_manage_metadata permission"
+   * hibaval, a komment-automatizmus webhookja pedig sosem kap esemenyt arrol
+   * az oldalrol, mert a Page sosem iratkozik fel ra. A hiba csendben nyelodott
+   * el, mert a subscribePageToWebhook() szandekosan sosem akasztja meg a
+   * csatlakozast egy sikertelen feliratkozas miatt.
    */
   scopes = [
     'pages_show_list',
@@ -49,6 +57,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
     'pages_manage_engagement',
     'pages_read_engagement',
     'pages_messaging',
+    'pages_manage_metadata',
     'read_insights',
   ];
   override maxConcurrentJob = 500; // Facebook has reasonable rate limits
@@ -407,9 +416,18 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
     // Subscribes the page to this app's webhook (comment events) the
     // moment it's connected, instead of leaving it as a manual Graph API
     // Explorer step for every page. Never blocks the connection flow - page
-    // selection is the important, visible part, this is a side effect of it.
+    // selection is the important, visible part, this is a side effect of it
+    // - but a failure here must still be visible somewhere: a page that
+    // silently never subscribes will forever look "connected" while the
+    // comment-automation webhook never fires for it (found live, 2026-10-23,
+    // after a missing scope - pages_manage_metadata - made every subscribe
+    // call fail with no trace anywhere).
     await this.subscribePageToWebhook(page.id, page.access_token).catch(
-      () => undefined
+      (err) =>
+        console.error(
+          `[facebook] subscribePageToWebhook failed for page ${page.id}:`,
+          err?.message || err
+        )
     );
 
     return page;

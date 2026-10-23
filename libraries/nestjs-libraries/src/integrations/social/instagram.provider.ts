@@ -601,14 +601,23 @@ export class InstagramProvider
     // has moved between the Page and the IG-scoped account across API
     // versions - both calls are idempotent and side effects only, so doing
     // both costs nothing and hedges against that uncertainty. Never blocks
-    // the connection flow.
-    await this.subscribeToWebhook(
-      data.pageId,
-      'feed',
-      access_token
-    ).catch(() => undefined);
-    await this.subscribeToWebhook(id, 'comments', access_token).catch(
-      () => undefined
+    // the connection flow - but a failure here must still be visible
+    // somewhere: an account that silently never subscribes will forever
+    // look "connected" while the comment-automation webhook never fires for
+    // it (found live, 2026-10-23, after a missing scope on the Page side -
+    // pages_manage_metadata - made that half fail with no trace anywhere).
+    await this.subscribeToWebhook(data.pageId, 'feed', access_token).catch(
+      (err) =>
+        console.error(
+          `[instagram] subscribeToWebhook(feed) failed for page ${data.pageId}:`,
+          err?.message || err
+        )
+    );
+    await this.subscribeToWebhook(id, 'comments', access_token).catch((err) =>
+      console.error(
+        `[instagram] subscribeToWebhook(comments) failed for ig account ${id}:`,
+        err?.message || err
+      )
     );
 
     return {
