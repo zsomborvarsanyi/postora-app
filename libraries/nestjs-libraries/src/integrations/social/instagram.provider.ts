@@ -594,6 +594,23 @@ export class InstagramProvider
       )
     ).json();
 
+    // Subscribes both the connected Facebook Page (feed) and the Instagram
+    // Business Account itself (comments) to this app's webhook, the moment
+    // it's connected, instead of leaving it as a manual Graph API Explorer
+    // step. Meta's exact subscription target for Instagram comment events
+    // has moved between the Page and the IG-scoped account across API
+    // versions - both calls are idempotent and side effects only, so doing
+    // both costs nothing and hedges against that uncertainty. Never blocks
+    // the connection flow.
+    await this.subscribeToWebhook(
+      data.pageId,
+      'feed',
+      access_token
+    ).catch(() => undefined);
+    await this.subscribeToWebhook(id, 'comments', access_token).catch(
+      () => undefined
+    );
+
     return {
       id,
       name,
@@ -601,6 +618,19 @@ export class InstagramProvider
       access_token: access_token + '___' + accessToken,
       username,
     };
+  }
+
+  // Idempotent - safe to call again on every reconnect.
+  private async subscribeToWebhook(
+    objectId: string,
+    subscribedFields: string,
+    pageAccessToken: string
+  ) {
+    await this.fetch(
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${objectId}/subscribed_apps?subscribed_fields=${subscribedFields}&access_token=${pageAccessToken}`,
+      { method: 'POST' },
+      'subscribe to webhook'
+    );
   }
 
   // Single, read-only status check of a media container - the polling loops

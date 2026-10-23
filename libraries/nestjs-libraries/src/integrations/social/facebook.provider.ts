@@ -402,6 +402,30 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
   }
 
   async fetchPageInformation(accessToken: string, data: { page: string }) {
+    const page = await this.findPageInformation(accessToken, data);
+
+    // Subscribes the page to this app's webhook (comment events) the
+    // moment it's connected, instead of leaving it as a manual Graph API
+    // Explorer step for every page. Never blocks the connection flow - page
+    // selection is the important, visible part, this is a side effect of it.
+    await this.subscribePageToWebhook(page.id, page.access_token).catch(
+      () => undefined
+    );
+
+    return page;
+  }
+
+  // Lets Meta start sending feed-comment webhook events for this page to
+  // this app. Idempotent - safe to call again on every reconnect.
+  private async subscribePageToWebhook(pageId: string, pageAccessToken: string) {
+    await this.fetch(
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${pageId}/subscribed_apps?subscribed_fields=feed&access_token=${pageAccessToken}`,
+      { method: 'POST' },
+      'subscribe page to webhook'
+    );
+  }
+
+  private async findPageInformation(accessToken: string, data: { page: string }) {
     const pageId = data.page;
     const fields = 'id,username,name,access_token,picture.type(large)';
 
