@@ -1058,6 +1058,26 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
   // Page's own /messages edge. Only one private reply is allowed per comment,
   // and only within 7 days of the comment - Meta enforces both, this method
   // just forwards the request.
+  // Posts a public reply nested under an existing Page comment. Facebook's
+  // Graph API accepts a comment id at the same /comments endpoint a post id
+  // needs (unlike Instagram, which rejects that and needs /replies instead -
+  // see the interface comment on replyToComment), so this is the same call
+  // comment() already makes, just under its own name for the generic
+  // comment-automation code to call without knowing that per-platform detail.
+  async replyToComment(
+    integration: Integration,
+    commentId: string,
+    message: string
+  ): Promise<void> {
+    await this.fetch(
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${commentId}/comments?message=${encodeURIComponent(
+        message
+      )}&access_token=${integration.token}`,
+      { method: 'POST' },
+      'reply to comment'
+    );
+  }
+
   async privateReply(
     integration: Integration,
     commentId: string,

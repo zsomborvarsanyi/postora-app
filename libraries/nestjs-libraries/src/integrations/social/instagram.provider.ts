@@ -1103,6 +1103,29 @@ export class InstagramProvider
     return id;
   }
 
+  // Posts a public reply nested under an existing comment. Deliberately NOT
+  // the same endpoint comment() uses (POST /{id}/comments, for a NEW
+  // top-level comment on a media): posting a comment id there fails with
+  // Graph API code 100/subcode 33 ("Unsupported post request... does not
+  // support this operation") - found live 2026-10-23, when this went through
+  // comment() and a real automated reply silently failed. The correct
+  // endpoint for nesting a reply under an Instagram comment is /replies.
+  async replyToComment(
+    integration: Integration,
+    commentId: string,
+    message: string
+  ): Promise<void> {
+    const [accessToken] = integration.token.split('___');
+
+    await this.fetch(
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${commentId}/replies?message=${encodeURIComponent(
+        message
+      )}&access_token=${accessToken}`,
+      { method: 'POST' },
+      'reply to comment'
+    );
+  }
+
   async privateReply(
     integration: Integration,
     commentId: string,

@@ -145,16 +145,9 @@ export class CommentAutomationService {
     const publicReplyText = applyNamePlaceholder(pickReplyVariant(rule.publicReply) || '', undefined) || null;
     const privateReplyText = applyNamePlaceholder(pickReplyVariant(rule.privateReply) || '', undefined) || null;
 
-    if (publicReplyText) {
+    if (publicReplyText && provider.replyToComment) {
       try {
-        await provider.comment?.(
-          integration.internalId,
-          providerCommentId,
-          providerCommentId,
-          integration.token,
-          [{ id: providerCommentId, message: publicReplyText, settings: {} }],
-          integration
-        );
+        await provider.replyToComment(integration, providerCommentId, publicReplyText);
         publicReplySentAt = new Date();
       } catch (err: any) {
         error = `public reply failed: ${err?.message || err}`;

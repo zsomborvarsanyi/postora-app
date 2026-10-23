@@ -105,6 +105,12 @@ export interface ISocialMediaIntegration {
     integration: Integration
   ): Promise<PostResponse[]>; // Schedules a new post
 
+  replyToComment?(
+    integration: Integration,
+    commentId: string,
+    message: string
+  ): Promise<void>; // Posts a public reply nested under an existing comment - deliberately NOT the same call as comment() (which creates a top-level comment on a post): Instagram's Graph API rejects a comment id posted to the same endpoint a media id needs (POST /{comment-id}/comments fails with code 100/subcode 33 - the correct endpoint is POST /{comment-id}/replies), found live 2026-10-23 when a real automated reply silently failed.
+
   privateReply?(
     integration: Integration,
     commentId: string,
