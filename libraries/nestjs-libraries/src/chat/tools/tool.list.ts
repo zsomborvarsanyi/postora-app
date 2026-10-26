@@ -10,6 +10,14 @@ import { GroupListTool } from '@gitroom/nestjs-libraries/chat/tools/group.list.t
 import { UploadFromUrlTool } from '@gitroom/nestjs-libraries/chat/tools/upload.from.url.tool';
 import { PostsListTool } from '@gitroom/nestjs-libraries/chat/tools/posts.list.tool';
 import { PostSettingsTool } from '@gitroom/nestjs-libraries/chat/tools/post.settings.tool';
+import { CommentAutomationPostsListTool } from '@gitroom/nestjs-libraries/chat/tools/comment.automation.posts.list.tool';
+import { CommentAutomationRulesListTool } from '@gitroom/nestjs-libraries/chat/tools/comment.automation.rules.list.tool';
+import { CommentAutomationRuleUpsertTool } from '@gitroom/nestjs-libraries/chat/tools/comment.automation.rule.upsert.tool';
+import { CommentAutomationRuleDeleteTool } from '@gitroom/nestjs-libraries/chat/tools/comment.automation.rule.delete.tool';
+import { CommentAutomationRuleReorderTool } from '@gitroom/nestjs-libraries/chat/tools/comment.automation.rule.reorder.tool';
+import { CommentAutomationRuleCopyTool } from '@gitroom/nestjs-libraries/chat/tools/comment.automation.rule.copy.tool';
+import { LonLinkOptionsTool } from '@gitroom/nestjs-libraries/chat/tools/lon.link.options.tool';
+import { LonLinkGenerateTool } from '@gitroom/nestjs-libraries/chat/tools/lon.link.generate.tool';
 
 export const toolList = [
   IntegrationListTool,
@@ -24,4 +32,12 @@ export const toolList = [
   GenerateVideoTool,
   GenerateImageTool,
   UploadFromUrlTool,
+  CommentAutomationPostsListTool,
+  CommentAutomationRulesListTool,
+  CommentAutomationRuleUpsertTool,
+  CommentAutomationRuleDeleteTool,
+  CommentAutomationRuleReorderTool,
+  CommentAutomationRuleCopyTool,
+  LonLinkOptionsTool,
+  LonLinkGenerateTool,
 ];
