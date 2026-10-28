@@ -72,6 +72,42 @@ export class CommentAutomationRuleDto {
   privateReply?: string[];
 }
 
+// Trimmed version of CommentAutomationRuleDto for scheduling-time editing,
+// embedded as settings.commentRule on the Facebook/Instagram post DTOs
+// (see FacebookDto/InstagramDto). id, order, active and providerPostId are
+// deliberately left out - there's no real post id yet at schedule time, and
+// the activate-on-publish hook in PostsService.updatePost fills those in
+// once the post actually goes out.
+export class CommentRuleOnPublishDto {
+  @IsEnum(RuleTriggerSource)
+  @IsDefined()
+  triggerSource: RuleTriggerSource;
+
+  @IsEnum(CommentMatchType)
+  @IsDefined()
+  matchType: CommentMatchType;
+
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(50)
+  @IsDefined()
+  triggers: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(10)
+  @IsOptional()
+  @MaxLength(2200, { each: true })
+  publicReply?: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(10)
+  @IsOptional()
+  @MaxLength(1000, { each: true })
+  privateReply?: string[];
+}
+
 export class ReorderCommentAutomationRulesDto {
   @IsArray()
   @IsString({ each: true })

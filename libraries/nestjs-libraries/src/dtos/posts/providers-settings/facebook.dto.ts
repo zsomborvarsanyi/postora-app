@@ -1,4 +1,13 @@
-import { IsIn, IsOptional, IsString, ValidateIf, IsUrl } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsIn,
+  IsOptional,
+  IsString,
+  ValidateIf,
+  ValidateNested,
+  IsUrl,
+} from 'class-validator';
+import { CommentRuleOnPublishDto } from '@gitroom/nestjs-libraries/dtos/comment-automation/comment-automation.dto';
 
 // Maximum characters Facebook allows on a background ("text format") post.
 export const FACEBOOK_PRESET_MAX_CHARS = 130;
@@ -108,4 +117,12 @@ export class FacebookDto {
   @IsOptional()
   @IsString()
   text_format_preset_id?: string;
+
+  // Scheduling-time comment-automation rule for this post. Activated by
+  // PostsService.updatePost once the post actually publishes and a real
+  // providerPostId exists - see CommentRuleOnPublishDto.
+  @IsOptional()
+  @Type(() => CommentRuleOnPublishDto)
+  @ValidateNested()
+  commentRule?: CommentRuleOnPublishDto;
 }

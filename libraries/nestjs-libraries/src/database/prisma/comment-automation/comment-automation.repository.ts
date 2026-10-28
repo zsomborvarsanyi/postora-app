@@ -84,6 +84,17 @@ export class CommentAutomationRepository {
     return [...postSpecific, ...channelWide];
   }
 
+  // Used by the publish-time activation hook (PostsService.updatePost) to
+  // decide whether a post's commentRule should update an already-activated
+  // rule or create a fresh one - a post only ever has one commentRule, so
+  // (integrationId, providerPostId) is a sufficient key, backed by the
+  // @@index([integrationId, providerPostId, active, order]) index.
+  findRuleByProviderPost(integrationId: string, providerPostId: string) {
+    return this._rules.model.commentAutomationRule.findFirst({
+      where: { integrationId, providerPostId, deletedAt: null },
+    });
+  }
+
   async upsertRule(
     orgId: string,
     integrationId: string,

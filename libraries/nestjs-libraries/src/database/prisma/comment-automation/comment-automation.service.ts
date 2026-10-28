@@ -50,6 +50,13 @@ export class CommentAutomationService {
     return this._commentAutomationRepository.upsertRule(orgId, integrationId, body);
   }
 
+  findRuleByProviderPost(integrationId: string, providerPostId: string) {
+    return this._commentAutomationRepository.findRuleByProviderPost(
+      integrationId,
+      providerPostId
+    );
+  }
+
   deleteRule(orgId: string, ruleId: string) {
     return this._commentAutomationRepository.deleteRule(orgId, ruleId);
   }

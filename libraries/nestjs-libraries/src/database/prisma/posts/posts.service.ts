@@ -54,6 +54,7 @@ import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { stripHtmlValidation } from '@gitroom/helpers/utils/strip.html.validation';
 import { weightedLength } from '@gitroom/helpers/utils/count.length';
+import { CommentAutomationService } from '@gitroom/nestjs-libraries/database/prisma/comment-automation/comment-automation.service';
 
 type PostWithConditionals = Post & {
   integration?: Integration;
@@ -71,15 +72,83 @@ export class PostsService {
     private _shortLinkService: ShortLinkService,
     private _openaiService: OpenaiService,
     private _temporalService: TemporalService,
-    private _refreshIntegrationService: RefreshIntegrationService
+    private _refreshIntegrationService: RefreshIntegrationService,
+    private _commentAutomationService: CommentAutomationService
   ) {}
 
   searchForMissingThreeHoursPosts() {
     return this._postRepository.searchForMissingThreeHoursPosts();
   }
 
-  updatePost(id: string, postId: string, releaseURL: string) {
-    return this._postRepository.updatePost(id, postId, releaseURL);
+  async updatePost(id: string, postId: string, releaseURL: string) {
+    const updated = await this._postRepository.updatePost(id, postId, releaseURL);
+
+    // Only the main post, not a thread/comment child, ever carries a
+    // commentRule - mirrors the parentPostId check already used elsewhere
+    // (e.g. PostActivity.getPostsList) rather than relying on the caller's
+    // loop position.
+    if (!updated.parentPostId) {
+      await this.activateCommentRuleOnPublish(updated);
+    }
+
+    return updated;
+  }
+
+  // Scheduling-time Variant A of comment automation: a commentRule the user
+  // attached to this post while scheduling (settings.commentRule, read
+  // generically off whatever provider DTO put it there - no facebook/
+  // instagram branching here, see this project's generic-code rule) gets
+  // turned into a real, active CommentAutomationRule the moment the post
+  // actually publishes and a real provider post id exists.
+  //
+  // Idempotency: PostsService.updatePost backs a Temporal activity that can
+  // retry up to 3 times, and CommentAutomationRepository.upsertRule always
+  // creates when body.id is missing - so a retry here without first looking
+  // up any already-activated rule for this exact (integrationId,
+  // providerPostId) would create duplicates. The lookup+id-passthrough stays
+  // in this hook rather than in upsertRule itself, since upsertRule is also
+  // used by the UI/API/MCP rule editor, where more than one rule can
+  // legitimately target the same post.
+  //
+  // Never throws: a failure here can never be allowed to fail the publish
+  // that PostsService.updatePost is recording.
+  private async activateCommentRuleOnPublish(post: Post) {
+    try {
+      const settings = JSON.parse(post.settings || '{}');
+      const commentRule = settings?.commentRule;
+      if (!commentRule || !post.releaseId) {
+        return;
+      }
+
+      const existing = await this._commentAutomationService.findRuleByProviderPost(
+        post.integrationId,
+        post.releaseId
+      );
+
+      const rule = await this._commentAutomationService.upsertRule(
+        post.organizationId,
+        post.integrationId,
+        {
+          id: existing?.id,
+          active: true,
+          triggerSource: commentRule.triggerSource,
+          providerPostId: post.releaseId,
+          matchType: commentRule.matchType,
+          triggers: commentRule.triggers,
+          publicReply: commentRule.publicReply,
+          privateReply: commentRule.privateReply,
+        }
+      );
+
+      console.log(
+        `[comment-automation:activate-on-publish] rule ${rule.id} activated for providerPostId=${post.releaseId} triggers=${commentRule?.triggers?.length || 0} active=true`
+      );
+    } catch (err) {
+      console.error(
+        '[comment-automation:activate-on-publish] failed to activate comment rule',
+        err
+      );
+    }
   }
 
   async getMissingContent(
