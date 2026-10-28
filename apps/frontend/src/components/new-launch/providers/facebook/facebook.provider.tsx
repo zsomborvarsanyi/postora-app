@@ -16,6 +16,7 @@ import { useIntegration } from '@gitroom/frontend/components/launches/helpers/us
 import { FacebookPreview } from '@gitroom/frontend/components/new-launch/providers/facebook/facebook.preview';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { useEffect } from 'react';
+import { CommentRuleOnPublishEditor } from '@gitroom/frontend/components/comment-automation/comment-rule-on-publish';
 
 const postType = [
   {
@@ -113,6 +114,10 @@ export const FacebookSettings = () => {
           </div>
         </>
       )}
+
+      <div className="mt-[18px]">
+        <CommentRuleOnPublishEditor {...register('commentRule')} />
+      </div>
     </>
   );
 };

@@ -22,18 +22,22 @@ import clsx from 'clsx';
 // lines/paragraphs, unlike one-variant-per-line.
 const VARIANT_SEPARATOR = /\r?\n-{3,}\r?\n/;
 
-const splitVariants = (text: string): string[] =>
+// Exported for reuse by CommentRuleOnPublishEditor (the scheduling-time,
+// embedded version of this same editor used in the post composer's
+// Facebook/Instagram panels) - same textarea-variants convention, same
+// parsing, kept in one place.
+export const splitVariants = (text: string): string[] =>
   (text || '')
     .split(VARIANT_SEPARATOR)
     .map((variant) => variant.trim())
     .filter(Boolean);
 
-const joinVariants = (variants: string[] | undefined): string =>
+export const joinVariants = (variants: string[] | undefined): string =>
   (variants || []).join('\n---\n');
 
 // Mirrors the backend's pickReplyVariant parsing, but returns every stored
 // variant instead of picking one - used to repopulate the edit form.
-const parseVariants = (stored: string | null | undefined): string[] => {
+export const parseVariants = (stored: string | null | undefined): string[] => {
   if (!stored) return [];
   try {
     const parsed = JSON.parse(stored);
