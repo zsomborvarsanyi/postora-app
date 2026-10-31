@@ -1064,6 +1064,82 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
   // see the interface comment on replyToComment), so this is the same call
   // comment() already makes, just under its own name for the generic
   // comment-automation code to call without knowing that per-platform detail.
+  // The Facebook comment webhook (feed field) reports the BARE feed post id in change.value.post_id, and a post-scoped
+  // comment rule only matches on equality with it. What a publish returns as releaseId differs by path: a Reel (mp4 ->
+  // /video_reels) returns the video id, a plain feed post returns the composite pageId_postId. This resolves either one
+  // to the bare feed post id. A Reel's feed post is found through the page's published_posts, where the post's
+  // attachments.target.id is the reel/video id. Stories have no comments, so they are skipped. Returns null if it can't
+  // be resolved (Graph not listing the fresh Reel yet, error, ...) and the caller then keeps the releaseId.
+  async resolveCommentPostId(
+    integration: Integration,
+    releaseId: string,
+    postSettings: Record<string, any>
+  ): Promise<string | null> {
+    if (!releaseId || postSettings?.post_type === 'story') {
+      return null;
+    }
+
+    const bareOf = (value: string) => value.split('_').pop() || value;
+
+    // composite pageId_postId: the webhook sends the postId part
+    if (releaseId.includes('_')) {
+      return bareOf(releaseId);
+    }
+
+    // Reel/video id: a just-published Reel can take a while to show up in published_posts (how long is not measured), so
+    // spaced attempts over ~2 minutes; the post activity's startToCloseTimeout is 10 minutes, so this fits comfortably
+    const delays = [0, 5000, 10000, 20000, 30000, 40000];
+    for (const delay of delays) {
+      if (delay) {
+        await timer(delay);
+      }
+      try {
+        const found = await this.findFeedPostIdByTarget(integration, releaseId);
+        if (found) {
+          return found;
+        }
+      } catch (err) {
+        console.error(
+          '[comment-automation:resolve-post-id] Graph lookup failed',
+          String(err)
+        );
+      }
+    }
+
+    return null;
+  }
+
+  private async findFeedPostIdByTarget(
+    integration: Integration,
+    targetId: string
+  ): Promise<string | null> {
+    let url: string | undefined =
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${integration.internalId}/published_posts` +
+      `?fields=id,attachments%7Btarget%7Bid%7D,subattachments%7Btarget%7Bid%7D%7D%7D&limit=25&access_token=${integration.token}`;
+
+    // a fresh post is at the top of the list, two pages are plenty
+    for (let page = 0; page < 2 && url; page++) {
+      const body = await (
+        await this.fetch(url, {}, 'resolve feed post id')
+      ).json();
+
+      for (const post of body?.data || []) {
+        const attachments = post?.attachments?.data || [];
+        const targets = attachments.flatMap((a: any) => [
+          a?.target?.id,
+          ...(a?.subattachments?.data || []).map((s: any) => s?.target?.id),
+        ]);
+        if (targets.includes(targetId)) {
+          return String(post.id).split('_').pop() || null;
+        }
+      }
+
+      url = body?.paging?.next;
+    }
+
+    return null;
+  }
+
   async replyToComment(
     integration: Integration,
     commentId: string,

@@ -120,10 +120,24 @@ export class PostsService {
         return;
       }
 
-      const existing = await this._commentAutomationService.findRuleByProviderPost(
-        post.integrationId,
-        post.releaseId
-      );
+      // The id the provider's comment webhook will report for this post can differ from the releaseId the publish
+      // returned (Facebook Reels), and a rule only fires on equality, so ask the provider to map it. Falls back to the
+      // releaseId (the pre-existing behavior) on any problem.
+      const providerPostId = await this.resolveCommentPostId(post, settings);
+
+      // A Temporal retry may find a rule an earlier attempt created under the fallback releaseId; reuse (and re-point)
+      // it instead of creating a duplicate.
+      const existing =
+        (await this._commentAutomationService.findRuleByProviderPost(
+          post.integrationId,
+          providerPostId
+        )) ||
+        (providerPostId !== post.releaseId
+          ? await this._commentAutomationService.findRuleByProviderPost(
+              post.integrationId,
+              post.releaseId
+            )
+          : null);
 
       const rule = await this._commentAutomationService.upsertRule(
         post.organizationId,
@@ -132,7 +146,7 @@ export class PostsService {
           id: existing?.id,
           active: true,
           triggerSource: commentRule.triggerSource,
-          providerPostId: post.releaseId,
+          providerPostId,
           matchType: commentRule.matchType,
           triggers: commentRule.triggers,
           publicReply: commentRule.publicReply,
@@ -141,7 +155,7 @@ export class PostsService {
       );
 
       console.log(
-        `[comment-automation:activate-on-publish] rule ${rule.id} activated for providerPostId=${post.releaseId} triggers=${commentRule?.triggers?.length || 0} active=true`
+        `[comment-automation:activate-on-publish] rule ${rule.id} activated for providerPostId=${providerPostId} (releaseId=${post.releaseId}) triggers=${commentRule?.triggers?.length || 0} active=true`
       );
     } catch (err) {
       console.error(
@@ -149,6 +163,42 @@ export class PostsService {
         err
       );
     }
+  }
+
+  // Asks the post's provider (if it implements the optional resolveCommentPostId) which id its comment webhook reports for
+  // the post just published. Never throws: any failure keeps the releaseId.
+  private async resolveCommentPostId(post: Post, settings: any): Promise<string> {
+    try {
+      const integration = await this._integrationService.getIntegrationById(
+        post.organizationId,
+        post.integrationId
+      );
+      const provider = integration
+        ? this._integrationManager.getSocialIntegration(
+            integration.providerIdentifier
+          )
+        : null;
+
+      if (provider?.resolveCommentPostId) {
+        const resolved = await provider.resolveCommentPostId(
+          integration,
+          post.releaseId!,
+          settings || {}
+        );
+        if (resolved) {
+          return resolved;
+        }
+        console.warn(
+          `[comment-automation:activate-on-publish] could not resolve the webhook post id for releaseId=${post.releaseId}, keeping the releaseId`
+        );
+      }
+    } catch (err) {
+      console.error(
+        '[comment-automation:activate-on-publish] post id resolution failed, keeping the releaseId',
+        err
+      );
+    }
+    return post.releaseId!;
   }
 
   async getMissingContent(

@@ -5,6 +5,24 @@ export type MatchableRule = Pick<
   'id' | 'active' | 'matchType' | 'triggers' | 'publicReply' | 'privateReply'
 >;
 
+// A post-scoped rule's providerPostId has to equal what the provider's comment webhook reports for the post, but the
+// webhook and the publish don't always use the same shape of the same id (Facebook: bare "12345" vs composite
+// "pageId_12345"). Returns every shape the incoming id can be stored under, so a rule matches either way. Ids that
+// contain no "_" (Instagram media ids) come back unchanged.
+export function postIdCandidates(providerPostId: string): {
+  exact: string[];
+  suffix: string | null;
+} {
+  const raw = (providerPostId || '').trim();
+  if (!raw) {
+    return { exact: [], suffix: null };
+  }
+  const bare = raw.split('_').pop() || raw;
+  const exact = Array.from(new Set([raw, bare]));
+  // a rule stored composite ("<page>_<bare>") matches an incoming bare id
+  return { exact, suffix: bare === raw ? `_${bare}` : null };
+}
+
 // Deterministic, network-free matching: the first active rule (in list order)
 // whose triggers match the comment text wins. No AI, no network, trivially
 // unit-testable - kept in its own module so testing it never has to load the

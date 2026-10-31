@@ -1,3 +1,8 @@
+// The posts.service import chain reaches auth.service -> `bcrypt`, a native binary that is built per platform
+// (node_modules here is installed for Windows); this spec never hashes anything.
+jest.mock('bcrypt', () => ({ hashSync: () => '', compareSync: () => true }));
+// ...and `sharp` through social.abstract.ts, same reasoning.
+jest.mock('sharp', () => ({ __esModule: true, default: {} }));
 // posts.service.ts transitively imports create.post.dto.ts -> sanitize.post.content.ts
 // -> isomorphic-dompurify, an ESM-only dependency this repo's jest/ts-jest
 // transform isn't configured to handle (no unit test imports PostsService
@@ -49,15 +54,21 @@ describe('PostsService - comment-automation activation on publish', () => {
     ...overrides,
   });
 
-  const makeService = (postRow: any) => {
+  const makeService = (postRow: any, resolveCommentPostId?: jest.Mock) => {
     const updatePost = jest.fn().mockResolvedValue(postRow);
     const findRuleByProviderPost = jest.fn().mockResolvedValue(null);
     const upsertRule = jest.fn().mockResolvedValue({ id: 'rule-1' });
+    const integration = { id: 'integration-1', providerIdentifier: 'facebook' };
+    const getIntegrationById = jest.fn().mockResolvedValue(integration);
+    // a provider only has the optional resolver when the test passes one (like Instagram, which doesn't implement it)
+    const getSocialIntegration = jest
+      .fn()
+      .mockReturnValue(resolveCommentPostId ? { resolveCommentPostId } : {});
 
     const service = new PostsService(
       { updatePost } as any,
-      {} as any,
-      {} as any,
+      { getSocialIntegration } as any,
+      { getIntegrationById } as any,
       {} as any,
       {} as any,
       {} as any,
@@ -66,7 +77,14 @@ describe('PostsService - comment-automation activation on publish', () => {
       { findRuleByProviderPost, upsertRule } as any
     );
 
-    return { service, updatePost, findRuleByProviderPost, upsertRule };
+    return {
+      service,
+      updatePost,
+      findRuleByProviderPost,
+      upsertRule,
+      getIntegrationById,
+      getSocialIntegration,
+    };
   };
 
   afterEach(() => {
@@ -189,5 +207,103 @@ describe('PostsService - comment-automation activation on publish', () => {
     expect(result).toBe(postRow);
     expect(findRuleByProviderPost).not.toHaveBeenCalled();
     expect(upsertRule).not.toHaveBeenCalled();
+  });
+
+  describe('webhook post id resolution (Facebook Reels: releaseId is the video id, the webhook sends the feed post id)', () => {
+    it('binds the rule to the id the provider resolves, not the raw releaseId', async () => {
+      const resolve = jest.fn().mockResolvedValue('122233333388050885');
+      const postRow = basePost({ releaseId: '2291226875008068' });
+      const { service, upsertRule } = makeService(postRow, resolve);
+
+      await service.updatePost('post-1', '2291226875008068', 'https://x/1');
+
+      expect(resolve).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'integration-1' }),
+        '2291226875008068',
+        expect.objectContaining({ __type: 'facebook' })
+      );
+      expect(upsertRule).toHaveBeenCalledWith(
+        'org-1',
+        'integration-1',
+        expect.objectContaining({ providerPostId: '122233333388050885', active: true })
+      );
+    });
+
+    it('keeps the releaseId (never worse than before) when the provider cannot resolve it', async () => {
+      const resolve = jest.fn().mockResolvedValue(null);
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const postRow = basePost({ releaseId: '2291226875008068' });
+      const { service, upsertRule } = makeService(postRow, resolve);
+
+      await service.updatePost('post-1', '2291226875008068', 'https://x/1');
+
+      expect(upsertRule).toHaveBeenCalledWith(
+        'org-1',
+        'integration-1',
+        expect.objectContaining({ providerPostId: '2291226875008068' })
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('could not resolve the webhook post id')
+      );
+    });
+
+    it('keeps the releaseId and still activates when the resolver throws', async () => {
+      const resolve = jest.fn().mockRejectedValue(new Error('graph down'));
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const postRow = basePost({ releaseId: '2291226875008068' });
+      const { service, upsertRule } = makeService(postRow, resolve);
+
+      const result = await service.updatePost('post-1', '2291226875008068', 'https://x/1');
+
+      expect(result).toBe(postRow);
+      expect(upsertRule).toHaveBeenCalledWith(
+        'org-1',
+        'integration-1',
+        expect.objectContaining({ providerPostId: '2291226875008068' })
+      );
+      expect(errorSpy).toHaveBeenCalled();
+    });
+
+    it('does not touch providers without a resolver (Instagram media id already equals the webhook id)', async () => {
+      const postRow = basePost({ releaseId: '18127332268867714' });
+      const { service, upsertRule } = makeService(postRow); // no resolver
+
+      await service.updatePost('post-1', '18127332268867714', 'https://x/1');
+
+      expect(upsertRule).toHaveBeenCalledWith(
+        'org-1',
+        'integration-1',
+        expect.objectContaining({ providerPostId: '18127332268867714' })
+      );
+    });
+
+    it('a retry that finds the rule an earlier attempt made under the fallback releaseId re-points it instead of duplicating', async () => {
+      const resolve = jest.fn().mockResolvedValue('122233333388050885');
+      const postRow = basePost({ releaseId: '2291226875008068' });
+      const { service, findRuleByProviderPost, upsertRule } = makeService(postRow, resolve);
+      findRuleByProviderPost.mockImplementation(async (_i: string, pid: string) =>
+        pid === '2291226875008068' ? { id: 'old-rule' } : null
+      );
+
+      await service.updatePost('post-1', '2291226875008068', 'https://x/1');
+
+      expect(upsertRule).toHaveBeenCalledTimes(1);
+      expect(upsertRule).toHaveBeenCalledWith(
+        'org-1',
+        'integration-1',
+        expect.objectContaining({ id: 'old-rule', providerPostId: '122233333388050885' })
+      );
+    });
+
+    it('does not resolve anything for a post without a commentRule', async () => {
+      const resolve = jest.fn();
+      const postRow = basePost({ settings: JSON.stringify({ __type: 'facebook' }) });
+      const { service, getIntegrationById } = makeService(postRow, resolve);
+
+      await service.updatePost('post-1', 'provider-post-1', 'https://x/1');
+
+      expect(getIntegrationById).not.toHaveBeenCalled();
+      expect(resolve).not.toHaveBeenCalled();
+    });
   });
 });

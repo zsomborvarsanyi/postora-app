@@ -2,6 +2,7 @@ import { PrismaRepository } from '@gitroom/nestjs-libraries/database/prisma/pris
 import { Injectable } from '@nestjs/common';
 import { CommentAutomationRuleDto } from '@gitroom/nestjs-libraries/dtos/comment-automation/comment-automation.dto';
 import { CommentAutomationRule, RuleTriggerSource } from '@prisma/client';
+import { postIdCandidates } from './comment-automation.match';
 
 @Injectable()
 export class CommentAutomationRepository {
@@ -57,12 +58,19 @@ export class CommentAutomationRepository {
     triggerSource: RuleTriggerSource,
     providerPostId?: string
   ) {
-    const postSpecific = providerPostId
+    const candidates = postIdCandidates(providerPostId || '');
+    const postSpecific = candidates.exact.length
       ? await this._rules.model.commentAutomationRule.findMany({
           where: {
             integrationId,
             triggerSource,
-            providerPostId,
+            // bare or composite, whichever shape the webhook sent and the rule was stored under
+            OR: [
+              { providerPostId: { in: candidates.exact } },
+              ...(candidates.suffix
+                ? [{ providerPostId: { endsWith: candidates.suffix } }]
+                : []),
+            ],
             active: true,
             deletedAt: null,
           },

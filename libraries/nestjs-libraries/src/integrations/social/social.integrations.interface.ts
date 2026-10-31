@@ -111,6 +111,18 @@ export interface ISocialMediaIntegration {
     message: string
   ): Promise<void>; // Posts a public reply nested under an existing comment - deliberately NOT the same call as comment() (which creates a top-level comment on a post): Instagram's Graph API rejects a comment id posted to the same endpoint a media id needs (POST /{comment-id}/comments fails with code 100/subcode 33 - the correct endpoint is POST /{comment-id}/replies), found live 2026-10-23 when a real automated reply silently failed.
 
+  // Maps the id a publish returned (releaseId) onto the id the provider's comment WEBHOOK later reports as the
+  // comment's post (change.value.post_id), because on some providers the two differ (Facebook: a Reel/video publish
+  // returns the video id, while the feed comment webhook reports the wrapping feed post). A post-scoped comment rule
+  // only fires when its providerPostId equals the webhook's value. Returns null when it can't be resolved (callers then
+  // keep the releaseId, i.e. never worse than not having this method). Providers whose releaseId already equals the
+  // webhook id (Instagram media id) simply don't implement it.
+  resolveCommentPostId?(
+    integration: Integration,
+    releaseId: string,
+    postSettings: Record<string, any>
+  ): Promise<string | null>;
+
   privateReply?(
     integration: Integration,
     commentId: string,
