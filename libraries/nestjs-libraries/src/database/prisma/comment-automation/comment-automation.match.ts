@@ -32,7 +32,7 @@ export function matchComment(
   rules: MatchableRule[],
   commentText: string
 ): MatchableRule | null {
-  const text = (commentText || '').toLowerCase().trim();
+  const foldedText = normalizeForMatch(commentText || '');
 
   for (const rule of rules) {
     if (!rule.active) continue;
@@ -40,8 +40,13 @@ export function matchComment(
     if (rule.matchType === 'REGEX') {
       try {
         const pattern = (JSON.parse(rule.triggers || '[]') as string[])[0];
-        if (pattern && new RegExp(pattern, 'i').test(commentText || '')) {
-          return rule;
+        if (pattern) {
+          const regex = new RegExp(pattern, 'i');
+          // Raw text first (unchanged behaviour), then the accent-folded text so an
+          // ASCII pattern also catches accented variants. Only ever a superset.
+          if (regex.test(commentText || '') || regex.test(foldedText)) {
+            return rule;
+          }
         }
       } catch {
         // malformed regex (bad pattern, or bad stored JSON): never match, never throw
@@ -52,14 +57,14 @@ export function matchComment(
     try {
       const phrases = (JSON.parse(rule.triggers || '[]') as string[])
         .filter(Boolean)
-        .map((phrase) => phrase.toLowerCase().trim());
+        .map((phrase) => normalizeForMatch(phrase));
 
       // EXACT: the whole message has to be just the phrase (e.g. "a plain
       // 'szia' and nothing else") - CONTAINS: the phrase appears anywhere.
       const isMatch =
         rule.matchType === 'EXACT'
-          ? phrases.includes(text)
-          : phrases.some((phrase) => phrase && text.includes(phrase));
+          ? phrases.includes(foldedText)
+          : phrases.some((phrase) => phrase && foldedText.includes(phrase));
 
       if (isMatch) {
         return rule;
@@ -70,6 +75,18 @@ export function matchComment(
   }
 
   return null;
+}
+
+// Accent-insensitive comparison key: lower-case, strip combining marks (NFD
+// splits e.g. a grave E into E + U+0300, the range below drops the mark), trim.
+// Used for comparing only - the original text is never overwritten. Only
+// combining marks are removed, so ASCII symbols like ^ and ` stay intact.
+function normalizeForMatch(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
 }
 
 // publicReply/privateReply are stored as a JSON array of variants (picked at
