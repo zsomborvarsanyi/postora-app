@@ -1185,6 +1185,26 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
     const today = dayjs().format('YYYY-MM-DD');
 
     try {
+      // Reels published through postNonStory() store the raw upload video_id
+      // as releaseId (it never captures the finish call's post_id, unlike
+      // the Stories flow above). The Page-post insights edge 404s on that raw
+      // video_id ("object does not exist, cannot be loaded due to missing
+      // permissions" - misleading, it's an id-shape problem, not a scope
+      // problem). A page-scoped post id always contains the page id prefix
+      // ("{pageId}_{storyId}"), a bare video_id never does, so resolve it via
+      // the video object's own post_id field first.
+      if (postId.indexOf('_') === -1) {
+        const video = await (
+          await fetch(
+            `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${postId}?fields=post_id&access_token=${accessToken}`
+          )
+        ).json();
+
+        if (video?.post_id) {
+          postId = `${integrationId}_${video.post_id}`;
+        }
+      }
+
       // Fetch post insights from Facebook Graph API.
       // post_impressions_unique was deprecated by Meta on 2026-06-15; it is replaced
       // by post_total_media_view_unique (unique media views = reach), available on

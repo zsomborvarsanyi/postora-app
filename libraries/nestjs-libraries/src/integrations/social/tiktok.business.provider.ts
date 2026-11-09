@@ -1107,30 +1107,37 @@ export class TiktokBusinessProvider
     const today = dayjs().format('YYYY-MM-DD');
 
     // Posts saved before post_ids became available keep their share_id
-    // (v_pub_url~... / p_pub_url~...) as releaseId - resolve it to the public
-    // post id first.
-    if (postId.indexOf('_pub_url') > -1) {
-      const post = await (
-        await this.fetch(
-          `${this.baseUrl}/business/publish/status/?business_id=${encodeURIComponent(
-            integrationId
-          )}&publish_id=${encodeURIComponent(postId)}`,
-          {
-            method: 'GET',
-            headers: {
-              'Access-Token': accessToken,
-            },
-          }
-        )
-      ).json();
+    // (v_pub_url~... / v_pub_file~... / p_pub_url~... / p_pub_file~...) as
+    // releaseId - resolve it to the public post id first. Real post ids are
+    // plain numeric strings and never contain '~', so that substring is the
+    // reliable signal, not just the url-upload prefix (file uploads produce
+    // a _pub_file id just as often and were never resolved by this check).
+    if (postId.indexOf('~') > -1) {
+      const statusResponse = await this.fetch(
+        `${this.baseUrl}/business/publish/status/?business_id=${encodeURIComponent(
+          integrationId
+        )}&publish_id=${encodeURIComponent(postId)}`,
+        {
+          method: 'GET',
+          headers: {
+            'Access-Token': accessToken,
+          },
+        }
+      );
 
-      this.throwIfTokenError(post);
+      const rawBody = await statusResponse.text();
+      this.throwIfTokenError(JSON.parse(rawBody));
 
-      if (!post?.data?.post_ids?.[0]) {
+      // post_ids is a snowflake id wider than Number.MAX_SAFE_INTEGER -
+      // .json() would silently round the trailing digits, so pull it from
+      // the raw text instead (see tiktok.provider.ts checkPostStatus).
+      const resolvedId = rawBody.match(/"post_ids"\s*:\s*\[\s*(\d+)/)?.[1];
+
+      if (!resolvedId) {
         return [];
       }
 
-      postId = String(post.data.post_ids[0]);
+      postId = resolvedId;
     }
 
     try {
