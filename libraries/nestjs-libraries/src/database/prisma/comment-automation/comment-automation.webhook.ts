@@ -10,20 +10,28 @@ import { createHmac, timingSafeEqual } from 'crypto';
 export function verifyMetaWebhookSignature(
   rawBody: Buffer | undefined,
   signatureHeader: string | undefined,
-  appSecret: string | undefined
+  appSecret: string | undefined | Array<string | undefined>
 ): boolean {
-  if (!rawBody || !appSecret || !signatureHeader?.startsWith('sha256=')) {
+  if (!rawBody || !signatureHeader?.startsWith('sha256=')) {
     return false;
   }
 
-  const expected = createHmac('sha256', appSecret).update(rawBody).digest('hex');
-  const provided = signatureHeader.slice('sha256='.length);
+  // Several Meta apps (e.g. Facebook Login and Instagram Login) can deliver to
+  // the same endpoint, each signing with its own secret: accept any configured one.
+  const secrets = ([] as Array<string | undefined>)
+    .concat(appSecret)
+    .filter((secret): secret is string => !!secret);
+  const provided = Buffer.from(signatureHeader.slice('sha256='.length));
 
-  if (expected.length !== provided.length) {
-    return false;
-  }
-
-  return timingSafeEqual(Buffer.from(expected), Buffer.from(provided));
+  // No short-circuit, so timing does not reveal which secret matched.
+  return secrets
+    .map((secret) => {
+      const expected = Buffer.from(
+        createHmac('sha256', secret).update(rawBody).digest('hex')
+      );
+      return expected.length === provided.length && timingSafeEqual(expected, provided);
+    })
+    .some(Boolean);
 }
 
 export type ExtractedCommentEvent = {

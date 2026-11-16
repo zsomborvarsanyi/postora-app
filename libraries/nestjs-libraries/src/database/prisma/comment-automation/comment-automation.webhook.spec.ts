@@ -39,6 +39,15 @@ describe('verifyMetaWebhookSignature', () => {
     );
   });
 
+  it('accepts a signature made with any of several configured secrets', () => {
+    expect(
+      verifyMetaWebhookSignature(body, validSignature, [undefined, 'other', secret])
+    ).toBe(true);
+    expect(
+      verifyMetaWebhookSignature(body, validSignature, ['other', undefined])
+    ).toBe(false);
+  });
+
   it('rejects when there is no app secret configured', () => {
     expect(verifyMetaWebhookSignature(body, validSignature, undefined)).toBe(
       false

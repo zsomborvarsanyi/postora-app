@@ -239,7 +239,7 @@ export class CommentAutomationService {
     return verifyMetaWebhookSignature(
       rawBody,
       signatureHeader,
-      process.env.FACEBOOK_APP_SECRET
+      [process.env.FACEBOOK_APP_SECRET, process.env.INSTAGRAM_APP_SECRET]
     );
   }
 
