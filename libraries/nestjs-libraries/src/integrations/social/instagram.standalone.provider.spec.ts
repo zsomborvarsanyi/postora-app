@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import { InstagramStandaloneProvider } from './instagram.standalone.provider';
 
 describe('InstagramStandaloneProvider (Unified Login)', () => {

@@ -26,8 +26,7 @@ export class InstagramStandaloneProvider
 {
   identifier = 'instagram-standalone';
   supportsCommentAutomation = true;
-  name = 'Instagram
-(Standalone)';
+  name = 'Instagram\n(Standalone)';
   // Instagram API with Unified Login (Facebook Login for Business): the token
   // is a business-integration system user token (SUAT) that Meta does not
   // refresh through us, and one login can share several Instagram accounts,
