@@ -502,25 +502,26 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     integration: Integration
   ): Promise<PendingCheckResponse> {
     let post: any;
+    let rawBody = '';
     try {
-      post = await (
-        await this.fetch(
-          'https://open.tiktokapis.com/v2/post/publish/status/fetch/',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json; charset=UTF-8',
-              Authorization: `Bearer ${accessToken}`,
-            },
-            body: JSON.stringify({
-              publish_id: pendingData.publishId,
-            }),
+      const response = await this.fetch(
+        'https://open.tiktokapis.com/v2/post/publish/status/fetch/',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json; charset=UTF-8',
+            Authorization: `Bearer ${accessToken}`,
           },
-          '',
-          0,
-          true
-        )
-      ).json();
+          body: JSON.stringify({
+            publish_id: pendingData.publishId,
+          }),
+        },
+        '',
+        0,
+        true
+      );
+      rawBody = await response.text();
+      post = JSON.parse(rawBody);
     } catch (err) {
       if (err instanceof RefreshToken || err instanceof Disconnect) {
         throw err;
@@ -532,7 +533,7 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
       return { status: 'pending', pendingData };
     }
 
-    const { status, publicaly_available_post_id } = post?.data || {};
+    const { status } = post?.data || {};
 
     if (status === 'SEND_TO_USER_INBOX') {
       return {
@@ -543,16 +544,22 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     }
 
     if (status === 'PUBLISH_COMPLETE') {
-      // an empty array is truthy, so index it once and branch on the value
-      const publicPostId = publicaly_available_post_id?.[0];
+      // publicaly_available_post_id is a snowflake id wider than
+      // Number.MAX_SAFE_INTEGER - letting JSON.parse touch it silently rounds
+      // the trailing digits (e.g. ...086305 becomes ...086000), storing a
+      // releaseId that then never matches any real video again. Re-extract it
+      // from the raw response text instead of post.data, which keeps full
+      // precision.
+      const publicPostId = rawBody.match(
+        /"publicaly_available_post_id"\s*:\s*\[\s*(\d+)/
+      )?.[1];
 
       return {
         status: 'completed',
         releaseURL: !publicPostId
           ? `https://www.tiktok.com/@${integration.profile}`
           : `https://www.tiktok.com/@${integration.profile}/video/${publicPostId}`,
-        // TikTok returns the id as a number, releaseId in the db is a string
-        postId: !publicPostId ? pendingData.publishId : String(publicPostId),
+        postId: !publicPostId ? pendingData.publishId : publicPostId,
       };
     }
 
@@ -1291,28 +1298,41 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
   ): Promise<AnalyticsData[]> {
     const today = dayjs().format('YYYY-MM-DD');
 
-    if (postId.indexOf('v_pub_url') > -1) {
-      const post = await (
-        await fetch(
-          'https://open.tiktokapis.com/v2/post/publish/status/fetch/',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json; charset=UTF-8',
-              Authorization: `Bearer ${accessToken}`,
-            },
-            body: JSON.stringify({
-              publish_id: postId,
-            }),
-          }
-        )
-      ).json();
+    // Posts saved before the public video id became available keep the raw
+    // publish_id as releaseId (v_pub_url~... for a URL-pulled upload,
+    // v_pub_file~... for a file upload - which is how Postora always
+    // publishes, so this is the common case, not the rare one). Real TikTok
+    // video ids returned by /v2/video/query/ are plain numeric strings and
+    // never contain '~', so that's the reliable signal to resolve first,
+    // instead of matching only the url-upload prefix.
+    if (postId.indexOf('~') > -1) {
+      const statusResponse = await fetch(
+        'https://open.tiktokapis.com/v2/post/publish/status/fetch/',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json; charset=UTF-8',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            publish_id: postId,
+          }),
+        }
+      );
 
-      if (!post?.data?.publicaly_available_post_id?.[0]) {
+      // publicaly_available_post_id is a snowflake id wider than
+      // Number.MAX_SAFE_INTEGER - .json() would silently round the trailing
+      // digits, so pull it from the raw text instead (see checkPostStatus).
+      const rawBody = await statusResponse.text();
+      const resolvedId = rawBody.match(
+        /"publicaly_available_post_id"\s*:\s*\[\s*(\d+)/
+      )?.[1];
+
+      if (!resolvedId) {
         return [];
       }
 
-      postId = post.data.publicaly_available_post_id[0];
+      postId = resolvedId;
     }
 
     try {
