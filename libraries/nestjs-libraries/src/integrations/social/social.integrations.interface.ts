@@ -197,6 +197,7 @@ export interface SocialProvider
   convertToJPEG?: boolean;
   stripLinks?: () => boolean;
   refreshCron?: boolean;
+  supportsCommentAutomation?: boolean; // Receives the Meta comment webhook and implements replyToComment/privateReply, so comment automation rules can be created for it
   dto?: any;
   maxLength: (additionalSettings?: any, settings?: any) => number;
   checkValidity(

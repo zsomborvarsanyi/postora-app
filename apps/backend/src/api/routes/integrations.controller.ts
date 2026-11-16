@@ -105,6 +105,7 @@ export class IntegrationsController {
             disabled: p.disabled,
             editor: findIntegration.editor,
             stripLinks: !!findIntegration?.stripLinks?.(),
+            commentAutomation: !!findIntegration?.supportsCommentAutomation,
             picture: p.picture || '/no-picture.jpg',
             identifier: p.providerIdentifier,
             inBetweenSteps: p.inBetweenSteps,

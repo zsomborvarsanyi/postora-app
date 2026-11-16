@@ -30,6 +30,7 @@ export const META_GRAPH_API_VERSION = 'v25.0';
 )
 export class FacebookProvider extends SocialAbstract implements SocialProvider {
   identifier = 'facebook';
+  supportsCommentAutomation = true;
   name = 'Facebook Page';
   isBetweenSteps = true;
   /*

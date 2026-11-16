@@ -19,13 +19,6 @@ import {
 
 export { matchComment, MatchableRule };
 
-// Facebook feed-comment events arrive with object: 'page', Instagram comment
-// events with object: 'instagram'. Both map 1:1 to the providerIdentifier
-// values used across this codebase; instagram-standalone is deliberately not
-// included, it has no webhook subscription wired up (different Meta app,
-// different credentials).
-const META_WEBHOOK_PROVIDER_IDENTIFIERS = ['facebook', 'instagram'];
-
 @Injectable()
 export class CommentAutomationService {
   constructor(
@@ -256,7 +249,7 @@ export class CommentAutomationService {
     for (const event of commentEvents) {
       const integration = await this._integrationService.findActiveIntegrationByInternalId(
         event.pageOrIgId,
-        META_WEBHOOK_PROVIDER_IDENTIFIERS
+        this._integrationManager.getCommentAutomationIdentifiers()
       );
 
       if (!integration) continue;
@@ -274,7 +267,7 @@ export class CommentAutomationService {
     for (const event of directMessageEvents) {
       const integration = await this._integrationService.findActiveIntegrationByInternalId(
         event.pageOrIgId,
-        META_WEBHOOK_PROVIDER_IDENTIFIERS
+        this._integrationManager.getCommentAutomationIdentifiers()
       );
 
       if (!integration) continue;

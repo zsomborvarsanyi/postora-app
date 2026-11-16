@@ -15,11 +15,6 @@ import useCookie from 'react-use-cookie';
 import { SVGLine } from '@gitroom/frontend/components/launches/launches.component';
 import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
 
-// Facebook + Instagram only, phase 1 - comment automation needs either a
-// push webhook (Meta) or a polling job (a future YouTube phase), neither of
-// which the other connected channel types have wired up yet.
-const SUPPORTED_PROVIDERS = ['facebook', 'instagram'];
-
 export const CommentAutomation = () => {
   const fetch = useFetch();
   const router = useRouter();
@@ -43,9 +38,7 @@ export const CommentAutomation = () => {
 
   const sortedIntegrations = useMemo(() => {
     return orderBy(
-      (data || []).filter((integration: any) =>
-        SUPPORTED_PROVIDERS.includes(integration.identifier)
-      ),
+      (data || []).filter((integration: any) => integration.commentAutomation),
       ['identifier'],
       ['asc']
     );

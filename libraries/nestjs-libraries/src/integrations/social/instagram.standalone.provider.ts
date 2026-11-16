@@ -26,6 +26,7 @@ export class InstagramStandaloneProvider
   implements SocialProvider
 {
   identifier = 'instagram-standalone';
+  supportsCommentAutomation = true;
   name = 'Instagram\n(Standalone)';
   isBetweenSteps = false;
   refreshCron = true;
@@ -90,6 +91,8 @@ export class InstagramStandaloneProvider
         `https://graph.instagram.com/${META_GRAPH_API_VERSION}/me?fields=user_id,username,name,profile_picture_url&access_token=${access_token}`
       )
     ).json();
+
+    await this.subscribeToCommentWebhook(access_token);
 
     return {
       id: user_id,
@@ -165,6 +168,8 @@ export class InstagramStandaloneProvider
         `https://graph.instagram.com/${META_GRAPH_API_VERSION}/me?fields=user_id,username,name,profile_picture_url&access_token=${access_token}`
       )
     ).json();
+
+    await this.subscribeToCommentWebhook(access_token);
 
     return {
       id: user_id,
@@ -247,11 +252,68 @@ export class InstagramStandaloneProvider
     );
   }
 
-  // No privateReply here on purpose: this provider never has
-  // instagram_manage_messages, and it never obtains a Facebook Page access
-  // token (it authenticates straight against graph.instagram.com), so there
-  // is no token/endpoint it could use to send a private reply. Comment
-  // automation falls back to public replies only for this connection type.
+  // Instagram Login equivalents of the Facebook-Login reply calls: same
+  // graph.instagram.com host as posting, the standalone token is the plain
+  // Instagram user token (no compound token), sent as a Bearer header.
+  async replyToComment(
+    integration: Integration,
+    commentId: string,
+    message: string
+  ): Promise<void> {
+    await this.fetch(
+      `https://graph.instagram.com/${META_GRAPH_API_VERSION}/${commentId}/replies?message=${encodeURIComponent(
+        message
+      )}`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${integration.token}` },
+      },
+      'reply to comment'
+    );
+  }
+
+  // Private reply: one per comment, within 7 days, enforced by Meta.
+  async privateReply(
+    integration: Integration,
+    commentId: string,
+    message: string
+  ): Promise<void> {
+    await this.fetch(
+      `https://graph.instagram.com/${META_GRAPH_API_VERSION}/${integration.internalId}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${integration.token}`,
+        },
+        body: JSON.stringify({
+          recipient: { comment_id: commentId },
+          message: { text: message },
+        }),
+      },
+      'private reply'
+    );
+  }
+
+  // Idempotent. Runs on connect and on every token refresh (refreshCron), so
+  // accounts connected before comment automation existed get subscribed too.
+  // Never blocks connecting/refreshing, but failures are logged: an account
+  // that never subscribes looks connected while no webhook ever arrives.
+  private async subscribeToCommentWebhook(accessToken: string) {
+    await this.fetch(
+      `https://graph.instagram.com/${META_GRAPH_API_VERSION}/me/subscribed_apps?subscribed_fields=comments`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      },
+      'subscribe to webhook'
+    ).catch((err) =>
+      console.error(
+        '[instagram-standalone] subscribeToCommentWebhook failed:',
+        err?.message || err
+      )
+    );
+  }
 
   async analytics(id: string, accessToken: string, date: number) {
     return instagramProvider.analytics(

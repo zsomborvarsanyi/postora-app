@@ -125,6 +125,12 @@ export class IntegrationManager {
       .map(([from]) => from);
   }
 
+  getCommentAutomationIdentifiers() {
+    return socialIntegrationList
+      .filter((p) => p.supportsCommentAutomation)
+      .map((p) => p.identifier);
+  }
+
   async getAllIntegrations() {
     return {
       social: await Promise.all(
