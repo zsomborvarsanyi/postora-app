@@ -17,6 +17,11 @@ name: Postora image
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Extra tag, e.g. release-2026-11-16. When set, :latest is NOT pushed.'
+        required: false
+        default: ''
   push:
     branches:
       - main
@@ -91,9 +96,17 @@ jobs:
 
       - name: Build es push
         run: |
+          # Egy kezi inditasnal megadott tag eseten a :latest NEM frissul, csak
+          # ez a tag es a sha tag, igy a produkcio ra rogzitheto es visszaallithato.
+          EXTRA_TAG="${{ github.event.inputs.tag }}"
+          if [ -n "$EXTRA_TAG" ]; then
+            TAGS="-t ${{ steps.meta.outputs.image }}:${EXTRA_TAG}"
+          else
+            TAGS="-t ${{ steps.meta.outputs.image }}:latest"
+          fi
           docker buildx build --platform linux/amd64 \
             -f Dockerfile.dev \
-            -t ${{ steps.meta.outputs.image }}:latest \
+            $TAGS \
             -t ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.sha }} \
             --build-arg NEXT_PUBLIC_VERSION=postora-${{ steps.meta.outputs.sha }} \
             --provenance=false --sbom=false \
@@ -104,7 +117,7 @@ jobs:
           {
             echo "### Postora image kesz"
             echo ""
-            echo "- \`${{ steps.meta.outputs.image }}:latest\`"
+            echo "- \`${{ steps.meta.outputs.image }}:${{ github.event.inputs.tag || 'latest' }}\`"
             echo "- \`${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.sha }}\`"
             echo ""
             echo "A szerveren: \`docker compose pull postiz && docker compose up -d postiz\`"

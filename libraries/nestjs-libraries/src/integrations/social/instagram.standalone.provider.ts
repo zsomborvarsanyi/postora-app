@@ -5,7 +5,6 @@ import {
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
-import dayjs from 'dayjs';
 import {
   SocialAbstract,
   ValidityMedia,
@@ -27,16 +26,21 @@ export class InstagramStandaloneProvider
 {
   identifier = 'instagram-standalone';
   supportsCommentAutomation = true;
-  name = 'Instagram\n(Standalone)';
-  isBetweenSteps = false;
-  refreshCron = true;
+  name = 'Instagram
+(Standalone)';
+  // Instagram API with Unified Login (Facebook Login for Business): the token
+  // is a business-integration system user token (SUAT) that Meta does not
+  // refresh through us, and one login can share several Instagram accounts,
+  // so the account is picked in the generic in-between-steps flow.
+  isBetweenSteps = true;
+  refreshCron = false;
   scopes = [
-    'instagram_business_basic',
-    'instagram_business_content_publish',
-    'instagram_business_manage_comments',
-    'instagram_business_manage_insights',
+    'instagram_basic',
+    'instagram_content_publish',
+    'instagram_manage_comments',
+    'instagram_manage_messages',
   ];
-    override maxConcurrentJob = 200; // Instagram standalone has stricter limits
+  override maxConcurrentJob = 200; // Instagram standalone has stricter limits
   dto = InstagramDto;
 
   editor = 'normal' as const;
@@ -75,51 +79,37 @@ export class InstagramStandaloneProvider
   }
 
   async refreshToken(refresh_token: string): Promise<AuthTokenDetails> {
-    const { access_token } = await (
-      await fetch(
-        `https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${refresh_token}`
-      )
-    ).json();
-
-    const {
-      user_id,
-      name,
-      username,
-      profile_picture_url = '',
-    } = await (
-      await fetch(
-        `https://graph.instagram.com/${META_GRAPH_API_VERSION}/me?fields=user_id,username,name,profile_picture_url&access_token=${access_token}`
-      )
-    ).json();
-
-    await this.subscribeToCommentWebhook(access_token);
-
+    // SUAT: nothing to refresh, an invalid token surfaces through handleErrors.
     return {
-      id: user_id,
-      name,
-      accessToken: access_token,
-      refreshToken: access_token,
-      expiresIn: dayjs().add(58, 'days').unix() - dayjs().unix(),
-      picture: profile_picture_url || '',
-      username,
+      refreshToken: '',
+      expiresIn: 0,
+      accessToken: '',
+      id: '',
+      name: '',
+      picture: '',
+      username: '',
     };
+  }
+
+  private redirectUri(refresh?: string) {
+    return `${
+      process?.env.FRONTEND_URL?.indexOf('https') == -1
+        ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
+        : `${process?.env.FRONTEND_URL}`
+    }/integrations/social/instagram-standalone${
+      refresh ? `?refresh=${refresh}` : ''
+    }`;
   }
 
   async generateAuthUrl() {
     const state = makeId(6);
     return {
       url:
-        `https://www.instagram.com/oauth/authorize?enable_fb_login=0&client_id=${
-          process.env.INSTAGRAM_APP_ID
-        }&redirect_uri=${encodeURIComponent(
-          `${
-            process?.env.FRONTEND_URL?.indexOf('https') == -1
-              ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
-              : `${process?.env.FRONTEND_URL}`
-          }/integrations/social/instagram-standalone`
-        )}&response_type=code&scope=${encodeURIComponent(
-          this.scopes.join(',')
-        )}` + `&state=${state}`,
+        `https://www.facebook.com/dialog/oauth?client_id=${process.env.FACEBOOK_APP_ID}` +
+        `&config_id=${process.env.INSTAGRAM_UNIFIED_CONFIG_ID}` +
+        '&display=popup&override_default_response_type=true' +
+        `&redirect_uri=${encodeURIComponent(this.redirectUri())}` +
+        `&response_type=code&state=${state}&prompt=login`,
       codeVerifier: makeId(10),
       state,
     };
@@ -130,55 +120,98 @@ export class InstagramStandaloneProvider
     codeVerifier: string;
     refresh: string;
   }) {
-    const formData = new FormData();
-    formData.append('client_id', process.env.INSTAGRAM_APP_ID!);
-    formData.append('client_secret', process.env.INSTAGRAM_APP_SECRET!);
-    formData.append('grant_type', 'authorization_code');
-    formData.append(
-      'redirect_uri',
-      `${
-        process?.env.FRONTEND_URL?.indexOf('https') == -1
-          ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
-          : `${process?.env.FRONTEND_URL}`
-      }/integrations/social/instagram-standalone`
-    );
-    formData.append('code', params.code);
-
-    const getAccessToken = await (
-      await fetch('https://api.instagram.com/oauth/access_token', {
-        method: 'POST',
-        body: formData,
-      })
-    ).json();
-
-    const { access_token, expires_in, ...all } = await (
+    const { access_token, expires_in } = await (
       await fetch(
-        'https://graph.instagram.com/access_token' +
-          '?grant_type=ig_exchange_token' +
-          `&client_id=${process.env.INSTAGRAM_APP_ID}` +
-          `&client_secret=${process.env.INSTAGRAM_APP_SECRET}` +
-          `&access_token=${getAccessToken.access_token}`
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/oauth/access_token` +
+          `?client_id=${process.env.FACEBOOK_APP_ID}` +
+          `&client_secret=${process.env.FACEBOOK_APP_SECRET}` +
+          `&redirect_uri=${encodeURIComponent(this.redirectUri(params.refresh))}` +
+          `&code=${params.code}`
       )
     ).json();
 
-    this.checkScopes(this.scopes, getAccessToken.permissions);
+    if (!access_token) {
+      throw new Error('Instagram login failed: no access token returned');
+    }
 
-    const { user_id, name, username, profile_picture_url } = await (
+    // /me is the system user here, not an Instagram account: the account is
+    // chosen afterwards through pages() / fetchPageInformation().
+    const { id, name } = await (
       await fetch(
-        `https://graph.instagram.com/${META_GRAPH_API_VERSION}/me?fields=user_id,username,name,profile_picture_url&access_token=${access_token}`
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me?fields=id,name&access_token=${access_token}`
       )
     ).json();
-
-    await this.subscribeToCommentWebhook(access_token);
 
     return {
-      id: user_id,
+      id,
       name,
       accessToken: access_token,
       refreshToken: access_token,
-      expiresIn: dayjs().add(58, 'days').unix() - dayjs().unix(),
+      // shortcut: SUAT lifetime is set by the Meta login configuration, 10 years when none is returned
+      expiresIn: expires_in || 10 * 365 * 24 * 3600,
+      picture: '',
+      username: '',
+    };
+  }
+
+  async pages(token: string) {
+    const { data } = await (
+      await fetch(
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/me/assigned_instagram_accounts?fields=id&limit=100&access_token=${token}`
+      )
+    ).json();
+
+    return Promise.all(
+      (data || []).map(async (account: { id: string }) => {
+        const { name, username, profile_picture_url } = await (
+          await fetch(
+            `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${account.id}?fields=name,username,profile_picture_url&access_token=${token}`
+          )
+        ).json();
+
+        return {
+          pageId: account.id,
+          id: account.id,
+          name: name || username,
+          picture: { data: { url: profile_picture_url } },
+        };
+      })
+    );
+  }
+
+  async fetchPageInformation(token: string, data: { id: string }) {
+    const { id, name, username, profile_picture_url } = await (
+      await fetch(
+        `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${data.id}?fields=id,name,username,profile_picture_url&access_token=${token}`
+      )
+    ).json();
+
+    await this.subscribeToCommentWebhook(data.id, token);
+
+    return {
+      id: id || data.id,
+      name: name || username,
       picture: profile_picture_url,
+      access_token: token,
       username,
+    };
+  }
+
+  async reConnect(
+    id: string,
+    requiredId: string,
+    token: string
+  ): Promise<Omit<AuthTokenDetails, 'refreshToken' | 'expiresIn'>> {
+    const information = await this.fetchPageInformation(token, {
+      id: requiredId,
+    });
+
+    return {
+      id: information.id,
+      name: information.name,
+      accessToken: information.access_token,
+      picture: information.picture,
+      username: information.username,
     };
   }
 
@@ -193,7 +226,7 @@ export class InstagramStandaloneProvider
       accessToken,
       postDetails,
       integration,
-      'graph.instagram.com'
+      'graph.facebook.com'
     );
   }
 
@@ -208,7 +241,7 @@ export class InstagramStandaloneProvider
       accessToken,
       postDetails,
       integration,
-      'graph.instagram.com'
+      'graph.facebook.com'
     );
   }
 
@@ -248,26 +281,22 @@ export class InstagramStandaloneProvider
       accessToken,
       postDetails,
       integration,
-      'graph.instagram.com'
+      'graph.facebook.com'
     );
   }
 
-  // Instagram Login equivalents of the Facebook-Login reply calls: same
-  // graph.instagram.com host as posting, the standalone token is the plain
-  // Instagram user token (no compound token), sent as a Bearer header.
+  // Unified Login: same graph.facebook.com host as posting, the token is the
+  // plain system user token (no compound token).
   async replyToComment(
     integration: Integration,
     commentId: string,
     message: string
   ): Promise<void> {
     await this.fetch(
-      `https://graph.instagram.com/${META_GRAPH_API_VERSION}/${commentId}/replies?message=${encodeURIComponent(
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${commentId}/replies?message=${encodeURIComponent(
         message
-      )}`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${integration.token}` },
-      },
+      )}&access_token=${integration.token}`,
+      { method: 'POST' },
       'reply to comment'
     );
   }
@@ -279,13 +308,10 @@ export class InstagramStandaloneProvider
     message: string
   ): Promise<void> {
     await this.fetch(
-      `https://graph.instagram.com/${META_GRAPH_API_VERSION}/${integration.internalId}/messages`,
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${integration.internalId}/messages?access_token=${integration.token}`,
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${integration.token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           recipient: { comment_id: commentId },
           message: { text: message },
@@ -295,17 +321,12 @@ export class InstagramStandaloneProvider
     );
   }
 
-  // Idempotent. Runs on connect and on every token refresh (refreshCron), so
-  // accounts connected before comment automation existed get subscribed too.
-  // Never blocks connecting/refreshing, but failures are logged: an account
+  // Idempotent. Never blocks connecting, but failures are logged: an account
   // that never subscribes looks connected while no webhook ever arrives.
-  private async subscribeToCommentWebhook(accessToken: string) {
+  private async subscribeToCommentWebhook(igUserId: string, accessToken: string) {
     await this.fetch(
-      `https://graph.instagram.com/${META_GRAPH_API_VERSION}/me/subscribed_apps?subscribed_fields=comments`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}` },
-      },
+      `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${igUserId}/subscribed_apps?subscribed_fields=comments&access_token=${accessToken}`,
+      { method: 'POST' },
       'subscribe to webhook'
     ).catch((err) =>
       console.error(
@@ -320,7 +341,7 @@ export class InstagramStandaloneProvider
       id,
       accessToken,
       date,
-      'graph.instagram.com'
+      'graph.facebook.com'
     );
   }
 
@@ -335,7 +356,7 @@ export class InstagramStandaloneProvider
       accessToken,
       postId,
       date,
-      'graph.instagram.com'
+      'graph.facebook.com'
     );
   }
 }
