@@ -500,7 +500,8 @@ export const LaunchesComponent = () => {
         <div
           className={clsx(
             'flex relative flex-col',
-            collapseMenu === '1' ? 'group sidebar w-[100px]' : 'w-[260px]'
+            collapseMenu === '1' ? 'group sidebar w-[100px]' : 'w-[260px]',
+            'mobile:!w-full mobile:h-[200px]'
           )}
         >
           <div
