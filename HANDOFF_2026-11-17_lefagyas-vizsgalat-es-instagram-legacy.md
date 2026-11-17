@@ -1,47 +1,50 @@
-# HANDOFF 2026-11-17 Naptár-lefagyás vizsgálat, Instagram legacy, mobil nézet
+# HANDOFF 2026-11-17 Instagram legacy élesítés, mobil nézet, YouTube
 
-Folytatása a HANDOFF_2026-11-16_youtube-es-instagram-unified-login.md fájlnak. Repo: C:\dev\postora. Éles szerver: ssh postiz-vps, /opt/postiz.
+Folytatása a HANDOFF_2026-11-16_youtube-es-instagram-unified-login.md fájlnak. Repo: C:\dev\postora. Éles szerver: ssh postiz-vps, /opt/postiz, oldal https://postora.zsomborvarsanyi.com
 
-## 1. Mi fut most élesben
+## 1. Mi fut most élesben (ellenőrizve)
 
-- Az éles kép: ghcr.io/zsomborvarsanyi/postora-app:release-2026-11-16 (sha256:96af97387d60...). Egészséges, a naptár (/launches) ezzel betölt. Ez az utolsó ellenőrzötten működő állapot.
-- A compose a szerveren nem tartalmaz INSTAGRAM_APP_ID és INSTAGRAM_APP_SECRET változót, és az instagram-unified nincs elrejtve. Az "Instagram (Standalone)" ezen a képen a Unified Login (Business login) kódot futtatja, ami portfólió nélküli Instagram-fióknál hibát ad.
-- A korábbi ellenőrzött compose-mentések: /opt/postiz/docker-compose.yaml.bak.20261117_191058_pre-login-restore és a docker-compose.yaml.bak.pre-* fájlok. Adatbázis-mentések: /opt/postiz/backups/pre-*.sql.gz (a legutóbbi pre-ig-restore-only_20261117_193500). Séma nem változott egyik kiadásban sem.
-- Lemez: kb. 86% (5,4 GB szabad). A rendszernaplót 200 MB-ra szorítottam. Új kép letöltése előtt töröld az előző, nem használt képet (docker rmi), különben elfogyhat a hely.
-- A helyi `postora-app:rollback-...` másolatot töröltem. A régi (november 9-i) kép a registryben `:latest` címkén van (sha256:48863f929ea5...), onnan visszatölthető. FIGYELEM: main-re vagy fix/** ágra tolt push felülírja a `:latest` címkét.
+- Kép: ghcr.io/zsomborvarsanyi/postora-app:login-restore-1117 (a feat/instagram-login-restore ág f827fd7 commitjából épült, ami a release/2026-11-16 + mobil nézet + legacy Instagram Login).
+- A szerveren a compose három változást kapott: az image a login-restore-1117 címkére mutat, új env INSTAGRAM_APP_ID=1987164955328684 és INSTAGRAM_APP_SECRET (az Instagram app secret, a Meta felületen az "API setup with Instagram login" oldalon, Show gomb), és az `instagram-unified` bekerült a HIDDEN_PROVIDERS listába.
+- Ellenőrzött tények:
+  - A /launches naptár asztali szélességen betölt, a csatornalista látszik.
+  - Az Add Channel ablakban az "Instagram (Standalone)" látszik, az "Instagram (Business login)" el van rejtve.
+  - Az Instagram (Standalone) kattintás a jó Instagram jóváhagyó oldalra visz (client_id 1987164955328684, redirect https://postora.zsomborvarsanyi.com/integrations/social/instagram-standalone, scope-ok: instagram_business_basic, manage_comments, content_publish, manage_insights).
+  - A zsombor.varsanyi fiókkal végigmentem: "Channel Updated", a csatorna (`Zsombor Varsányi`, instagram-standalone, belső id 17841401977111319) frissült, token lejárat 2027-01-14, refreshNeeded=false. A fiók típusa BUSINESS, Facebook-oldal és üzleti portfólió nélkül is működött.
+  - A webhook-feliratkozás él: graph.instagram.com/me/subscribed_apps a `comments` mezőt mutatja.
+  - A webhook GET-ellenőrzés jó tokennel visszaadja a challenge-et.
+  - Mobil nézet 390 pixel szélességen (iframe-trükkel): a felső sáv befér, az alsó navigációs sáv oldalirányban görgethető, a csatornalista és a naptár egymás alatt van, alapból napi nézet. A Create Post ablak egyoszlopos és használható.
+- Mobil nézet ismert hiányosságai: a csatornalista csak kb. 200 pixel magas, az alsó navigáció utolsó eleme (Integrations) levágva (görgethető), a Create Post szerkesztő jobb széle kicsit levágott, az alsó gombok egy része a chat-buborék alatt. Nincs átalakítva: komment-automatizmus szabályszerkesztő, plugs, beállítások, analitika, média-választó, Add Channel ablak (nincs megnézve telefon szélességen).
+- Nem próbáltam ki: tényleges poszt publikálása az Instagram-csatornára, komment-válasz és privát válasz valódi kommenttel. A webhook payload leképezése a standalone fiókra élesben nincs tesztelve. A `/replies` hívás a `message` paramétert query-ben küldi, a Meta dokumentációja JSON törzset mutat: ha a komment-válasz hibát ad, azt kell átírni.
 
-## 2. Mi történt ma (rövid)
+## 2. FONTOS tanulság: a "lefagyás" valójában lassú első betöltés
 
-1. A Google YouTube csatlakoztatás redirect_uri_mismatch hibát adott. Teendő a Cloud Console-ban: a YouTube OAuth-kliens Authorized redirect URI-k közé kell venni a https://postora.zsomborvarsanyi.com/integrations/social/youtube címet. Ezt a felhasználónak kell megcsinálnia.
-2. Az Instagram (Standalone) hibát ad, ha az Instagram-fiók nincs üzleti portfólióban. Ez a Unified Login korlátja. A legacy Instagram Login (instagram.com/oauth/authorize, graph.instagram.com) nem kér portfóliót, és a Meta appban elérhető. A Meta oldalon megcsináltam: az Instagram business login átirányítási címe https://postora.zsomborvarsanyi.com/integrations/social/instagram-standalone (mentve, zöld pipa). Az Instagram app ID: 1987164955328684, az app secretet a Meta felületen az "API setup with Instagram login" oldalon lehet előhozni (Show gomb).
-3. Kód: a feat/instagram-login-restore ág (f827fd7) a legacy providert visszaállítja instagram-standalone néven, a Unified Login kódot instagram-unified néven megtartja. Két provider-spec zöld. A feat/instagram-login-restore-only és a feat/ig-legacy-provider-only ágak ugyanezt szűkebben tartalmazzák (release alapon).
-4. Mobil nézet: a feat/mobile-layout ág (9516132) és a feat/mobile-layout-fix ág (c9084855). Csak Tailwind-osztályok.
+Ma több képnél azt hittem, hogy a /launches oldal lefagy. Ez tévedés volt: minden konténer-újraindítás után az első betöltés kb. 15-25 másodpercig tart (pörgő kör), közben a képernyőkép-készítés időtúllépéssel elbukik. A második betöltés 4 másodperc. Bizonyíték: a release ág forrásából újraépített kép (release-rebuild-1117) ugyanígy viselkedett, és a végleges kép is. Teszteléskor deploy után várj legalább 30 másodpercet, és egyetlen előtérben lévő böngészőlapot használj (a tabs_create_mcp háttérben nyitja a lapot, ott a képernyőkép mindig elbukik).
 
-## 3. A megoldatlan probléma: /launches lefagyás
+## 3. Visszaállítás
 
-Minden új kép (mobile-layout, login-restore, ig-restore-only, és valószínűleg az ig-legacy-only) telepítése után a böngészőben a /launches (naptár) oldal nem töltődött be: a naptár helyén pörgő kör, a lap nem reagált, a képernyőkép-készítés CDP időtúllépéssel elbukott. A működő release-2026-11-16 képpel ugyanez az oldal gond nélkül betölt. Ellenőrzött tények:
-- A háttérhívások (api/posts, api/integrations/list, api/user/self, api/sets) mindegyike gyors és 200-at ad, tehát a backend rendben van.
-- A böngésző-konzolon nincs hibaüzenet, a DOM felépül (kb. 2000 elem, nem nő).
-- A mobil-nézet nélkül is lefagyott (ig-restore-only kép), és a környezeti változók nélkül is (csak képcsere).
-- A kódkülönbség a release-hez képest az Instagram-képeknél csak: két provider-fájl, regisztrációs listák (integration.manager.ts, all.providers.settings.ts, show.all.providers.tsx, platform.analytics.tsx).
-- Utolsó lépés: ugyanabból a release ág forrásból új kép épült (release-rebuild-1117, a futó release-2026-11-16-tal azonos forrás). Ezt telepítettem, de a böngészőbővítmény nem volt csatlakoztatva, ezért NEM tudtam megnézni, lefagy-e. Visszaállítottam a release-2026-11-16 képre. HA a release-rebuild-1117 is lefagyasztja a naptárat, a hiba a build/környezet oldali (nem a forráskód), és ez minden további kiadást érint.
-
-Gyanús, ellenőrizendő: a böngésző állapota (süti, cache, 25 nyitott lap, háttérlapok képernyőkép-hibája). A tabs_create_mcp által nyitott lapok háttérben nyílnak, ott a képernyőkép mindig elbukik, ez félrevezethet. A tiszta teszt: egyetlen előtérben lévő lap, friss betöltés.
-
-## 4. Holnapi következő lépések (sorrendben)
-
-1. A Chrome-ban a Claude in Chrome bővítmény oldalpaneljét kell megnyitni és bejelentkezni, hogy a böngészős ellenőrzés működjön (ma újraindulás után nem csatlakozott).
-2. A/B teszt a naptárra, egyetlen előtérbeli lappal: telepítsd a release-rebuild-1117 képet (docker pull, compose image sor cseréje, docker compose up -d postiz), nyisd meg a /launches oldalt. Ha betölt: a hiba kódhoz kötött, és a feat/ig-legacy-provider-only képet (ig-legacy-only-1117 címke, újraépítendő) kell ugyanígy kipróbálni, utána a regisztrációs módosításokat. Ha lefagy: build/környezeti ok, a release-2026-11-16-ra vissza.
-3. Ha a naptár rendben van a legacy-only képpel: a compose-ba be kell tenni az INSTAGRAM_APP_ID és INSTAGRAM_APP_SECRET változókat, utána az "Instagram (Standalone)" csatlakoztatás kipróbálható egy portfólió nélküli Instagram-fiókkal.
-4. A YouTube redirect URI javítás a Cloud Console-ban (lásd 2/1), utána újracsatlakoztatás.
-5. Levente Administrator meghívója a Meta appon még Pending volt. Az Instagram Tester meghívók nem szükségesek a Unified Login-hoz, a legacy Instagram Login-hoz viszont igen lehetnek (Instagram: instagram.com/accounts/manage_access/, Tester Invites).
-
-## 5. Visszaállítás
-
-A jelenlegi állapot a biztonságos alap. Ha bármi elromlik egy újabb deploy után:
+A mai deploy előtti, ellenőrzött állapot: ghcr.io/zsomborvarsanyi/postora-app:release-2026-11-16 (sha256:96af97387d60..., helyben megvan).
 
     cd /opt/postiz
-    sed -i "s#postora-app:[^ ]*#postora-app:release-2026-11-16#" docker-compose.yaml
+    cp docker-compose.yaml.bak.20261117_204441_pre-final-restore docker-compose.yaml
     docker compose up -d postiz
 
-(a sed csak az image sorra vonatkozik, a környezeti változókat nem érinti, ezért ha INSTAGRAM_APP_ID/SECRET is bekerült, az a változatlan kép mellett is ártalmatlan). A release-2026-11-16 kép helyben megvan.
+Ez az INSTAGRAM env nélküli, release-2026-11-16 képes állapot. Utána az első betöltés lassú, ez normális.
+Adatbázis-mentések (pg_dump, gzip): /opt/postiz/backups/pre-final-restore_20261117_204441.sql.gz és a korábbiak (pre-*.sql.gz). A séma egyik kiadásban sem változott, az adatbázis visszaállítása normál esetben nem kell.
+A legrégebbi (november 9-i) kép a registryben `:latest` címkén van (sha256:48863f929ea5...). FIGYELEM: main-re vagy fix/** ágra tolt push felülírja a `:latest` címkét (CI). A címkézett build kézzel indul: gh workflow run postora-image.yml --repo zsomborvarsanyi/postora-app --ref <ág> -f tag=<uj-cimke>. Az eredményt `gh run view <id> --json conclusion` mutassa (a `gh run watch --exit-status | tail` félrevezető, mert a kilépési kódot elnyeli).
+Lemez: kb. 86% (5,2 GB szabad). Új kép letöltése előtt töröld a nem használt képet (docker rmi), különben elfogyhat a hely. A rendszernaplót 200 MB-ra szorítottam (journalctl --vacuum-size).
+
+## 4. Ágak állapota (git)
+
+- origin/release/2026-11-16 (6f465a2f): a kiadás alapja + két handoff. Ebből a mobil és a legacy Instagram módosítás hiányzik.
+- origin/feat/instagram-login-restore (f827fd7): ez fut élesben. Tartalmazza a mobil nézetet (9516132) és a legacy Instagram-t (instagram-standalone) + a Unified Login kód átnevezve instagram-unified névre.
+- feat/mobile-layout-fix (c9084855): a mobil ág változata a calendar.context.tsx módosítás nélkül, nincs telepítve, nem szükséges.
+- Az origin/main augusztusi, nem tartalmazza a komment-automatizmust. A main-be egyesítést nem csináltam, mert a main-re tolt push felülírná a `:latest` címkét. Ha tudatosan egyesíteni akarod: először a feat/instagram-login-restore ágat kell a release-hez igazítani, majd main-re PR, és a push után az új `:latest` képet kell használni a compose-ban.
+
+## 5. Teendők
+
+1. YouTube: a Cloud Console-ban a YouTube OAuth-kliens Authorized redirect URI-k közé kell venni a https://postora.zsomborvarsanyi.com/integrations/social/youtube címet (redirect_uri_mismatch hiba). Utána a YouTube-csatorna újracsatlakoztatása, privát tesztvideó. Ha a videó privátra zárul, a YouTube API Services audit űrlap kell.
+2. Instagram (Standalone): élő teszt poszt (privát/teszt tartalom), majd komment-szabály létrehozása a csatornán, kommentelés egy másik fiókkal, megérkezik-e a válasz és a privát üzenet.
+3. Levente Administrator meghívója a Meta appon (Postidőzítő_VZS) Pending volt. Az Instagram Tester meghívók a legacy Instagram Login-hoz kellhetnek más fiókoknál (instagram.com/accounts/manage_access/, Tester Invites).
+4. A mobil nézet finomítása a fenti hiányosságok szerint.
+5. A Meta app alapbeállításai: a Terms of Service és az adattörlési URL jelenleg https://www.facebook.com/ (placeholder), az app ikon nincs feltöltve. Idegen felhasználók csatlakozása előtt pótolni kell (Terms: https://postora.zsomborvarsanyi.com/terms).
