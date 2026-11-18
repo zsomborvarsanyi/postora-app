@@ -446,6 +446,18 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     const json = await response.json().catch(() => ({} as any));
     const errorCode = json?.error?.code;
 
+    // An expired access token must refresh and retry (the generic custom
+    // function route does that on RefreshToken), not leave the composer with
+    // an empty, disabled privacy dropdown.
+    if (errorCode === 'access_token_invalid') {
+      throw new RefreshToken(
+        this.identifier,
+        JSON.stringify(json),
+        '{}',
+        json?.error?.message
+      );
+    }
+
     if (!response.ok || (errorCode && errorCode !== 'ok')) {
       return {
         canPost: false,
